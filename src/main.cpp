@@ -5,6 +5,25 @@
 #include <SDL3_ttf/SDL_ttf.h>
 #include <SDL3_image/SDL_image.h>
 
+void UpdateDpr(SDL_Window *window, SDL_Renderer *renderer, float &dpr) {
+    // DPR --
+    int ww, wh;
+    int pw, ph;
+    int rw, rh;
+    float sx, sy;
+    SDL_GetWindowSize(window, &ww, &wh);
+    SDL_GetWindowSizeInPixels(window, &pw, &ph);
+    SDL_GetCurrentRenderOutputSize(renderer, &rw, &rh);
+    SDL_GetRenderScale(renderer, &sx, &sy);
+    dpr = static_cast<float>(pw) / static_cast<float>(ww);
+    SDL_Log("window=%dx%d pixels=%dx%d render=%dx%d dpr=%f scale=%f,%f",
+            ww, wh, pw, ph, rw, rh,
+            (float) pw / (float) ww,
+            sx, sy);
+    // DPR --
+    SDL_SetRenderScale(renderer, dpr, dpr);
+}
+
 void DrawImage(SDL_Renderer *renderer, const float dpr, const std::string &filePath, const SDL_Point &pos,
                const SDL_Color &color) {
     // TODO: cache created texture
@@ -16,8 +35,8 @@ void DrawImage(SDL_Renderer *renderer, const float dpr, const std::string &fileP
 
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
     const SDL_FRect dst{
-        static_cast<float>(pos.x) * dpr,
-        static_cast<float>(pos.y) * dpr,
+        static_cast<float>(pos.x),
+        static_cast<float>(pos.y),
         static_cast<float>(surface->w),
         static_cast<float>(surface->h)
     };
@@ -26,6 +45,7 @@ void DrawImage(SDL_Renderer *renderer, const float dpr, const std::string &fileP
     SDL_SetTextureAlphaMod(texture, color.a);
 
     SDL_RenderTexture(renderer, texture, nullptr, &dst);
+    SDL_DestroySurface(surface);
 
     SDL_SetTextureColorMod(texture, 255, 255, 255);
     SDL_SetTextureAlphaMod(texture, 255);
@@ -42,15 +62,16 @@ void DrawText(SDL_Renderer *renderer, TTF_Font *font, const float dpr, const std
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
 
     const SDL_FRect dst{
-        static_cast<float>(pos.x) * dpr,
-        static_cast<float>(pos.y) * dpr,
-        static_cast<float>(surface->w),
-        static_cast<float>(surface->h)
+        static_cast<float>(pos.x),
+        static_cast<float>(pos.y),
+        static_cast<float>(surface->w) / dpr,
+        static_cast<float>(surface->h) / dpr
     };
     SDL_SetTextureColorMod(texture, color.r, color.g, color.b);
     SDL_SetTextureAlphaMod(texture, color.a);
 
     SDL_RenderTexture(renderer, texture, nullptr, &dst);
+    SDL_DestroySurface(surface);
 
     SDL_SetTextureColorMod(texture, 255, 255, 255);
     SDL_SetTextureAlphaMod(texture, 255);
@@ -58,7 +79,7 @@ void DrawText(SDL_Renderer *renderer, TTF_Font *font, const float dpr, const std
 
 void DrawRect(SDL_Renderer *renderer, const float dpr, const SDL_FRect &rect, const SDL_Color &color) {
     const SDL_FRect _rect{
-        rect.x * dpr, rect.y * dpr, rect.w * dpr, rect.h * dpr
+        rect.x, rect.y, rect.w, rect.h
     };
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
     SDL_RenderFillRect(renderer, &_rect);
@@ -81,15 +102,7 @@ int main() {
         SDL_Quit();
         return 1;
     }
-
-    // DPR --
-    int ww, wh;
-    int pw, ph;
-    SDL_GetWindowSize(window, &ww, &wh);
-    SDL_GetWindowSizeInPixels(window, &pw, &ph);
-    const float dpr = static_cast<float>(pw) / static_cast<float>(ww);
-    // DPR --
-
+    SDL_SetWindowPosition(window, 2560 + 100, 100);
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) {
@@ -99,6 +112,8 @@ int main() {
         return 1;
     }
 
+    float dpr = 1;
+    UpdateDpr(window, renderer, dpr);
 
     TTF_Font *font = TTF_OpenFont("/System/Library/Fonts/Supplemental/Arial.ttf", 16 * dpr);
     if (!font) {
@@ -113,6 +128,9 @@ int main() {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
+            }
+            if (event.type == SDL_EVENT_WINDOW_MOVED) {
+                UpdateDpr(window, renderer, dpr);
             }
         }
 
