@@ -11,7 +11,10 @@
       "displayName": "Base Config",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/${presetName}"
+      "binaryDir": "${sourceDir}/out/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
     },
     {
       "name": "debug",
