@@ -140,15 +140,20 @@ void Application::RenderPanels() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     constexpr float leftWidth = 240.0f;
     constexpr float rightWidth = 300.0f;
+    constexpr ImGuiWindowFlags panelFlags =
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(ImVec2(leftWidth, viewport->WorkSize.y));
-    ImGui::Begin("Layers", nullptr,
-                 ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("Layers", nullptr, panelFlags);
 
-    if (ImGui::Button("+ Rectangle")) {
+    ImGui::TextUnformatted("Layers");
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 92.0f);
+    if (ImGui::Button("+ Rectangle", ImVec2(100.0f, 0.0f))) {
         document_.AddRectangle();
         transformer_.EndDrag();
     }
@@ -168,11 +173,10 @@ void Application::RenderPanels() {
 
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - rightWidth, viewport->WorkPos.y));
     ImGui::SetNextWindowSize(ImVec2(rightWidth, viewport->WorkSize.y));
-    ImGui::Begin("Inspector", nullptr,
-                 ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("Inspector", nullptr, panelFlags);
 
+    ImGui::TextUnformatted("Inspector");
+    ImGui::Separator();
     Shape *shape = document_.SelectedShape();
     if (shape) {
         char nameBuffer[128] = {};
