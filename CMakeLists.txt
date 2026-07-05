@@ -10,7 +10,16 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(unofficial-skia CONFIG REQUIRED)
 
-add_executable(app src/main.cpp)
+add_executable(app
+        src/main.cpp
+        src/app/Application.cpp
+        src/canvas/CanvasDocument.cpp
+        src/canvas/CanvasView.cpp
+        src/canvas/Shape.cpp
+        src/canvas/Transformer.cpp
+        src/render/ImGuiLayer.cpp
+        src/render/SkiaRenderer.cpp
+)
 
 target_link_libraries(app PRIVATE
         OpenGL::GL
