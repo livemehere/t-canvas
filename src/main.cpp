@@ -67,7 +67,11 @@ int main() {
 
         int framebufferWidth = 0;
         int framebufferHeight = 0;
+        int windowWidth = 0;
+        int windowHeight = 0;
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
         glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        const float dpr = static_cast<float>(framebufferWidth) / static_cast<float>(windowWidth);
 
         glViewport(0, 0, framebufferWidth, framebufferHeight);
         glClearColor(0.02f, 0.02f, 0.025f, 1.0f);
@@ -95,6 +99,7 @@ int main() {
         SkCanvas *canvas = surface->getCanvas();
         canvas->clear(SK_ColorBLACK);
         canvas->save();
+        canvas->scale(dpr, dpr);
         SkPaint paint;
         paint.setAntiAlias(true);
         paint.setColor(SkColorSetARGB(255, 80, 180, 255));
@@ -111,10 +116,9 @@ int main() {
 
         ImDrawList *drawList = ImGui::GetForegroundDrawList();
         drawList->AddRectFilled(
-            ImVec2(80.0f, 80.0f),
-            ImVec2(280.0f, 180.0f),
-            IM_COL32(80, 180, 255, 255),
-            6.0f);
+            ImVec2(80.0f, 190.0f),
+            ImVec2(280.0f, 290.0f),
+            IM_COL32(255, 120, 80, 255));
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
