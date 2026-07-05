@@ -1,16 +1,19 @@
 #include <iostream>
 
-#include "SDL3/SDL.h"
-#include "SDL3/SDL_main.h"
-#include "SDL3_ttf/SDL_ttf.h"
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_image/SDL_image.h>
 
-void DrawText(SDL_Renderer *renderer, TTF_Font *font, const float dpr, const std::string &text, const SDL_Point &pos,
-              const SDL_Color &color) {
-    SDL_Surface *surface = TTF_RenderText_Blended(
-        font,
-        text.c_str(),
-        0,
-        color);
+void DrawImage(SDL_Renderer *renderer, const float dpr, const std::string &filePath, const SDL_Point &pos,
+               const SDL_Color &color) {
+    // TODO: cache created texture
+    SDL_Surface *surface = IMG_Load(filePath.c_str());
+    if (!surface) {
+        SDL_Log("Image loading failed: %s", SDL_GetError());
+        return;
+    }
+
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
     const SDL_FRect dst{
         static_cast<float>(pos.x) * dpr,
@@ -18,11 +21,55 @@ void DrawText(SDL_Renderer *renderer, TTF_Font *font, const float dpr, const std
         static_cast<float>(surface->w),
         static_cast<float>(surface->h)
     };
+
+    SDL_SetTextureColorMod(texture, color.r, color.g, color.b);
+    SDL_SetTextureAlphaMod(texture, color.a);
+
     SDL_RenderTexture(renderer, texture, nullptr, &dst);
+
+    SDL_SetTextureColorMod(texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(texture, 255);
+}
+
+void DrawText(SDL_Renderer *renderer, TTF_Font *font, const float dpr, const std::string &text, const SDL_Point &pos,
+              const SDL_Color &color) {
+    // TODO: cache created texture
+    SDL_Surface *surface = TTF_RenderText_Blended(
+        font,
+        text.c_str(),
+        0,
+        {255, 255, 255, 255});
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+
+    const SDL_FRect dst{
+        static_cast<float>(pos.x) * dpr,
+        static_cast<float>(pos.y) * dpr,
+        static_cast<float>(surface->w),
+        static_cast<float>(surface->h)
+    };
+    SDL_SetTextureColorMod(texture, color.r, color.g, color.b);
+    SDL_SetTextureAlphaMod(texture, color.a);
+
+    SDL_RenderTexture(renderer, texture, nullptr, &dst);
+
+    SDL_SetTextureColorMod(texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(texture, 255);
+}
+
+void DrawRect(SDL_Renderer *renderer, const float dpr, const SDL_FRect &rect, const SDL_Color &color) {
+    const SDL_FRect _rect{
+        rect.x * dpr, rect.y * dpr, rect.w * dpr, rect.h * dpr
+    };
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    SDL_RenderFillRect(renderer, &_rect);
 }
 
 int main() {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) || !TTF_Init()) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+        return -1;
+    }
+
+    if (!TTF_Init()) {
         return -1;
     }
 
@@ -75,15 +122,13 @@ int main() {
         // begin --
 
         // Rect
-        SDL_FRect rect{
-            10.0f * dpr, 10.0f * dpr, 100.0f * dpr, 100.0f * dpr
-        };
-        SDL_SetRenderDrawColor(renderer, 80, 180, 255, 255);
-        SDL_RenderFillRect(renderer, &rect);
+        DrawRect(renderer, dpr, {10.0f, 10.0f, 100.0f, 100.0f}, {80, 20, 255, 255});
+        DrawRect(renderer, dpr, {200.0f, 10.0f, 100.0f, 100.0f}, {80, 20, 255, 255});
 
         // Text
-        DrawText(renderer, font, dpr, "Hello world", {10, 10}, {255, 255, 255, 255});
+        DrawText(renderer, font, dpr, "Hello world", {10, 10}, {80, 255, 255, 255});
         DrawText(renderer, font, dpr, "Canvas", {200, 10}, {255, 255, 255, 255});
+        DrawImage(renderer, dpr, "../../assets/img.png", {700, 10}, {80, 255, 255, 255});
 
         // end --
 
