@@ -125,8 +125,11 @@ TCanvas는 두 가지 방식의 블러를 지원합니다.
 
 여러 변형을 추가하면 TCanvas는 다음과 같이 크기 접미사를 붙여 파일을 저장합니다.
 
+```bash
 tc_export_800x600.png
 tc_export_1600x1200.png
+```
+
 <img width="3104" height="1634" alt="image" src="https://github.com/user-attachments/assets/ffb9e515-5438-4d7c-901a-0f0087920da9" />
 
 ## 환경설정
