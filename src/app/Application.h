@@ -58,9 +58,12 @@ private:
     int textEditCursor_ = 0;
     bool focusTextEditor_ = false;
     std::array<char, 4096> textEditBuffer_{};
+    bool hasCopiedShape_ = false;
+    Shape copiedShape_;
     std::vector<SnapGuide> snapGuides_;
 
     void HandleInput();
+    void HandleShortcuts();
     void Render(float dpr, int framebufferWidth, int framebufferHeight);
     void RenderPanels();
     void RenderToolbar();
@@ -68,6 +71,9 @@ private:
     void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight);
     void RenderShape(SkCanvas *canvas, const Shape &shape);
     void AddShapeFromTool(Tool tool);
+    void AddImageFromClipboard();
+    void CopySelection();
+    void PasteSelectionOrClipboardImage();
     void BeginTextEditing(int shapeIndex);
     void FinishTextEditing();
     void InsertTextEditorNewline();

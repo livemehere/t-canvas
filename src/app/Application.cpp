@@ -179,6 +179,8 @@ void Application::HandleInput() {
     const bool panToolActive = activeTool_ == Tool::Pan || spacePanActive_;
     glfwSetCursor(window_, panToolActive && handCursor_ ? handCursor_ : defaultCursor_);
 
+    HandleShortcuts();
+
     if (io.WantCaptureMouse) {
         return;
     }
@@ -195,7 +197,7 @@ void Application::HandleInput() {
     }
 
     if (io.MouseWheel != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
-        view_.ZoomAt(mouse, io.MouseWheel);
+        view_.ZoomAt(mouse, io.MouseWheel, io.KeyAlt ? 0.25f : 1.0f);
     }
 
     if (panToolActive) {
@@ -294,6 +296,49 @@ void Application::HandleInput() {
     }
 
     view_.isPanning = false;
+}
+
+void Application::HandleShortcuts() {
+    ImGuiIO &io = ImGui::GetIO();
+    if (editingTextIndex_ >= 0 || io.WantCaptureKeyboard) {
+        return;
+    }
+
+    if (io.KeySuper && ImGui::IsKeyPressed(ImGuiKey_C)) {
+        CopySelection();
+        return;
+    }
+    if (io.KeySuper && ImGui::IsKeyPressed(ImGuiKey_V)) {
+        PasteSelectionOrClipboardImage();
+        return;
+    }
+
+    if (io.KeySuper || io.KeyAlt || io.KeyCtrl || io.KeyShift) {
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+        activeTool_ = Tool::Select;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_P)) {
+        activeTool_ = Tool::Pan;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+        activeTool_ = Tool::Rect;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+        activeTool_ = Tool::Circle;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_L)) {
+        activeTool_ = Tool::Line;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+        activeTool_ = Tool::Arrow;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_T)) {
+        activeTool_ = Tool::Text;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_I)) {
+        AddShapeFromTool(Tool::Image);
+        activeTool_ = Tool::Select;
+    }
+
+    if (activeTool_ != Tool::Select) {
+        transformer_.EndDrag();
+    }
 }
 
 void Application::RenderPanels() {
@@ -574,6 +619,63 @@ void Application::AddShapeFromTool(Tool tool) {
     document_.AddShape(std::move(shape));
 }
 
+void Application::AddImageFromClipboard() {
+    sk_sp<SkData> data = ReadClipboardImageData();
+    sk_sp<SkImage> image = data ? SkImages::DeferredFromEncodedData(data) : nullptr;
+    if (!image) {
+        return;
+    }
+
+    Shape shape;
+    shape.type = ShapeType::Image;
+    shape.name = "Image " + std::to_string(document_.Shapes().size() + 1);
+    shape.image = image;
+    shape.position = ViewCenterWorld();
+    shape.size = {static_cast<float>(image->width()), static_cast<float>(image->height())};
+    shape.fill = {1.0f, 1.0f, 1.0f, 1.0f};
+    shape.borderWidth = 0.0f;
+    document_.AddShape(std::move(shape));
+}
+
+void Application::CopySelection() {
+    const Shape *shape = document_.SelectedShape();
+    if (!shape) {
+        return;
+    }
+
+    copiedShape_ = *shape;
+    hasCopiedShape_ = true;
+}
+
+void Application::PasteSelectionOrClipboardImage() {
+    sk_sp<SkData> data = ReadClipboardImageData();
+    sk_sp<SkImage> image = data ? SkImages::DeferredFromEncodedData(data) : nullptr;
+    if (image) {
+        Shape shape;
+        shape.type = ShapeType::Image;
+        shape.name = "Image " + std::to_string(document_.Shapes().size() + 1);
+        shape.image = image;
+        shape.position = ViewCenterWorld();
+        shape.size = {static_cast<float>(image->width()), static_cast<float>(image->height())};
+        shape.fill = {1.0f, 1.0f, 1.0f, 1.0f};
+        shape.borderWidth = 0.0f;
+        document_.AddShape(std::move(shape));
+        transformer_.EndDrag();
+        return;
+    }
+
+    if (!hasCopiedShape_) {
+        return;
+    }
+
+    Shape pasted = copiedShape_;
+    pasted.name += " Copy";
+    pasted.position = pasted.position + Vec2{24.0f, 24.0f};
+    document_.AddShape(std::move(pasted));
+    copiedShape_ = *document_.SelectedShape();
+    transformer_.EndDrag();
+}
+
 void Application::BeginTextEditing(int shapeIndex) {
     Shape *shape = document_.SelectedShape();
     if (shapeIndex < 0 || !shape || shape->type != ShapeType::Text) {
@@ -733,14 +835,19 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) {
         }
     } else if (shape.type == ShapeType::Line || shape.type == ShapeType::Arrow) {
         const float halfWidth = shape.size.x * 0.5f;
-        canvas->drawLine(-halfWidth, 0.0f, halfWidth, 0.0f, border);
+        constexpr float arrowLength = 18.0f;
+        constexpr float arrowHalfHeight = 4.8f;
+        const float lineEnd = shape.type == ShapeType::Arrow ? halfWidth - arrowLength + 1.0f : halfWidth;
+        canvas->drawLine(-halfWidth, 0.0f, lineEnd, 0.0f, border);
         if (shape.type == ShapeType::Arrow) {
+            SkPaint arrowFill = border;
+            arrowFill.setStyle(SkPaint::kFill_Style);
             SkPath arrow;
             arrow.moveTo(halfWidth, 0.0f);
-            arrow.lineTo(halfWidth - 14.0f, -7.0f);
-            arrow.lineTo(halfWidth - 14.0f, 7.0f);
+            arrow.lineTo(halfWidth - arrowLength, -arrowHalfHeight);
+            arrow.lineTo(halfWidth - arrowLength, arrowHalfHeight);
             arrow.close();
-            canvas->drawPath(arrow, border);
+            canvas->drawPath(arrow, arrowFill);
         }
     } else if (shape.type == ShapeType::Text) {
         SkFont font(CanvasTypeface(), std::max(12.0f, shape.size.y * 0.55f));

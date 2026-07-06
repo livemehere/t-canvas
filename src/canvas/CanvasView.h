@@ -10,5 +10,5 @@ struct CanvasView {
 
     Vec2 ScreenToWorld(Vec2 point) const;
     Vec2 WorldToScreen(Vec2 point) const;
-    void ZoomAt(Vec2 screenPoint, float wheelDelta);
+    void ZoomAt(Vec2 screenPoint, float wheelDelta, float sensitivity = 1.0f);
 };

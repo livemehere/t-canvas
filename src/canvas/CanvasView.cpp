@@ -16,9 +16,9 @@ Vec2 CanvasView::WorldToScreen(Vec2 point) const {
     };
 }
 
-void CanvasView::ZoomAt(Vec2 screenPoint, float wheelDelta) {
+void CanvasView::ZoomAt(Vec2 screenPoint, float wheelDelta, float sensitivity) {
     const float oldZoom = zoom;
-    const float zoomFactor = std::pow(1.12f, wheelDelta);
+    const float zoomFactor = std::pow(1.12f, wheelDelta * sensitivity);
     zoom = Clamp(zoom * zoomFactor, 0.1f, 16.0f);
 
     const Vec2 worldBefore{
