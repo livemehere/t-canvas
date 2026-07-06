@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <utility>
 
@@ -13,12 +14,16 @@
 #include <skia/core/SkColor.h>
 #include <skia/core/SkData.h>
 #include <skia/core/SkFont.h>
+#include <skia/core/SkFontMgr.h>
+#include <skia/core/SkFontStyle.h>
 #include <skia/core/SkImage.h>
 #include <skia/core/SkPaint.h>
 #include <skia/core/SkPath.h>
 #include <skia/core/SkRRect.h>
 #include <skia/core/SkRect.h>
 #include <skia/core/SkSamplingOptions.h>
+#include <skia/core/SkTypeface.h>
+#include <skia/ports/SkFontMgr_mac_ct.h>
 
 #include "../platform/FileDialog.h"
 
@@ -34,6 +39,41 @@ SkColor ToSkColor(Color color) {
         static_cast<U8CPU>(Clamp(color.g, 0.0f, 1.0f) * 255.0f),
         static_cast<U8CPU>(Clamp(color.b, 0.0f, 1.0f) * 255.0f)
     );
+}
+
+sk_sp<SkTypeface> CanvasTypeface() {
+    static sk_sp<SkTypeface> typeface = [] {
+        sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
+        if (fontMgr) {
+            for (const char *family: {"SF Pro Text", "Helvetica Neue", "Helvetica", "Apple SD Gothic Neo"}) {
+                sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyle(family, SkFontStyle::Normal());
+                if (matched) {
+                    return matched;
+                }
+            }
+            sk_sp<SkTypeface> fallback = fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
+            if (fallback) {
+                return fallback;
+            }
+        }
+
+        const char *fontPaths[] = {
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+        };
+        if (!fontMgr) {
+            fontMgr = SkFontMgr::RefEmpty();
+        }
+        for (const char *path: fontPaths) {
+            sk_sp<SkTypeface> loaded = fontMgr->makeFromFile(path);
+            if (loaded) {
+                return loaded;
+            }
+        }
+        return sk_sp<SkTypeface>();
+    }();
+    return typeface;
 }
 
 const char *ToolLabel(Application::Tool tool) {
@@ -68,6 +108,13 @@ void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
     shape.position = Midpoint(start, end);
     shape.size = {length, 1.0f};
     shape.rotation = RadiansToDegrees(std::atan2(delta.y, delta.x));
+}
+
+int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways && data->UserData) {
+        *static_cast<int *>(data->UserData) = data->CursorPos;
+    }
+    return 0;
 }
 } // namespace
 
@@ -139,7 +186,7 @@ void Application::HandleInput() {
     const Vec2 mouse{io.MousePos.x, io.MousePos.y};
     const Vec2 mouseWorld = view_.ScreenToWorld(mouse);
 
-    if (!io.WantCaptureKeyboard &&
+    if (editingTextIndex_ < 0 && !io.WantCaptureKeyboard &&
         (ImGui::IsKeyPressed(ImGuiKey_Backspace) || ImGui::IsKeyPressed(ImGuiKey_Delete))) {
         document_.RemoveSelectedShape();
         transformer_.EndDrag();
@@ -183,6 +230,14 @@ void Application::HandleInput() {
         if (activeTool_ != Tool::Select) {
             if (IsLineTool(activeTool_)) {
                 BeginLineDrawing(activeTool_, mouseWorld);
+            } else if (activeTool_ == Tool::Text) {
+                AddShapeFromTool(activeTool_);
+                if (Shape *shape = document_.SelectedShape()) {
+                    shape->position = mouseWorld;
+                    shape->text.clear();
+                }
+                BeginTextEditing(document_.SelectedShapeIndex());
+                activeTool_ = Tool::Select;
             } else if (activeTool_ != Tool::Image) {
                 AddShapeFromTool(activeTool_);
                 if (Shape *shape = document_.SelectedShape()) {
@@ -373,6 +428,79 @@ void Application::RenderToolbar() {
     ImGui::End();
 }
 
+void Application::RenderTextEditor() {
+    if (editingTextIndex_ < 0 || editingTextIndex_ != document_.SelectedShapeIndex()) {
+        return;
+    }
+
+    Shape *shape = document_.SelectedShape();
+    if (!shape || shape->type != ShapeType::Text) {
+        editingTextIndex_ = -1;
+        return;
+    }
+
+    const Vec2 screen = view_.WorldToScreen(shape->position);
+    const ImVec2 size{
+        std::max(180.0f, shape->size.x * view_.zoom),
+        std::max(48.0f, shape->size.y * view_.zoom)
+    };
+    const ImVec2 pos{
+        screen.x - size.x * 0.5f,
+        screen.y - size.y * 0.5f
+    };
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
+    ImGui::Begin("TextEditorOverlay", nullptr,
+                 ImGuiWindowFlags_NoDecoration |
+                 ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoSavedSettings |
+                 ImGuiWindowFlags_NoBackground);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 3.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.08f, 0.09f, 0.10f, 0.92f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.10f, 0.11f, 0.13f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.10f, 0.11f, 0.13f, 0.98f));
+
+    if (focusTextEditor_) {
+        ImGui::SetKeyboardFocusHere();
+        focusTextEditor_ = false;
+    }
+
+    const ImGuiInputTextFlags flags =
+        ImGuiInputTextFlags_EnterReturnsTrue |
+        ImGuiInputTextFlags_CtrlEnterForNewLine |
+        ImGuiInputTextFlags_CallbackAlways;
+    const bool submitted = ImGui::InputTextMultiline(
+        "##TextEdit",
+        textEditBuffer_.data(),
+        textEditBuffer_.size(),
+        ImGui::GetContentRegionAvail(),
+        flags,
+        TrackTextEditCursor,
+        &textEditCursor_
+    );
+
+    ImGuiIO &io = ImGui::GetIO();
+    if (submitted && (io.KeyShift || io.KeySuper)) {
+        InsertTextEditorNewline();
+        focusTextEditor_ = true;
+    }
+
+    shape->text = textEditBuffer_.data();
+
+    if (submitted && !io.KeyShift && !io.KeySuper) {
+        FinishTextEditing();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        FinishTextEditing();
+    }
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
+    ImGui::End();
+}
+
 Vec2 Application::ViewCenterWorld() const {
     int windowWidth = 0;
     int windowHeight = 0;
@@ -415,7 +543,7 @@ void Application::AddShapeFromTool(Tool tool) {
             shape.type = ShapeType::Text;
             shape.name = "Text " + std::to_string(document_.Shapes().size() + 1);
             shape.size = {180.0f, 48.0f};
-            shape.text = "Text";
+            shape.text.clear();
             shape.fill = {0.92f, 0.94f, 0.96f, 1.0f};
             shape.borderWidth = 0.0f;
             break;
@@ -444,6 +572,47 @@ void Application::AddShapeFromTool(Tool tool) {
     }
 
     document_.AddShape(std::move(shape));
+}
+
+void Application::BeginTextEditing(int shapeIndex) {
+    Shape *shape = document_.SelectedShape();
+    if (shapeIndex < 0 || !shape || shape->type != ShapeType::Text) {
+        editingTextIndex_ = -1;
+        return;
+    }
+
+    editingTextIndex_ = shapeIndex;
+    textEditBuffer_.fill('\0');
+    std::strncpy(textEditBuffer_.data(), shape->text.c_str(), textEditBuffer_.size() - 1);
+    textEditCursor_ = static_cast<int>(std::strlen(textEditBuffer_.data()));
+    focusTextEditor_ = true;
+    transformer_.EndDrag();
+}
+
+void Application::FinishTextEditing() {
+    Shape *shape = document_.SelectedShape();
+    if (shape && editingTextIndex_ == document_.SelectedShapeIndex() && shape->type == ShapeType::Text) {
+        shape->text = textEditBuffer_.data();
+    }
+    editingTextIndex_ = -1;
+    textEditCursor_ = 0;
+    focusTextEditor_ = false;
+}
+
+void Application::InsertTextEditorNewline() {
+    const int length = static_cast<int>(std::strlen(textEditBuffer_.data()));
+    if (length + 1 >= static_cast<int>(textEditBuffer_.size())) {
+        return;
+    }
+
+    const int cursor = Clamp(textEditCursor_, 0, length);
+    std::memmove(
+        textEditBuffer_.data() + cursor + 1,
+        textEditBuffer_.data() + cursor,
+        static_cast<size_t>(length - cursor + 1)
+    );
+    textEditBuffer_[cursor] = '\n';
+    textEditCursor_ = cursor + 1;
 }
 
 void Application::BeginLineDrawing(Tool tool, Vec2 startWorld) {
@@ -516,7 +685,7 @@ void Application::RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, floa
     SkPaint labelPaint;
     labelPaint.setAntiAlias(true);
     labelPaint.setColor(SkColorSetARGB(190, 210, 214, 220));
-    SkFont font(nullptr, 9.0f);
+    SkFont font(CanvasTypeface(), 9.0f);
 
     char label[32] = {};
     for (float worldX = firstWorldX; worldX <= worldBottomRight.x + worldStep; worldX += worldStep) {
@@ -574,8 +743,25 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) {
             canvas->drawPath(arrow, border);
         }
     } else if (shape.type == ShapeType::Text) {
-        SkFont font(nullptr, std::max(12.0f, shape.size.y * 0.55f));
-        canvas->drawString(shape.text.c_str(), rect.left(), rect.centerY() + font.getSize() * 0.35f, font, fill);
+        SkFont font(CanvasTypeface(), std::max(12.0f, shape.size.y * 0.55f));
+        const float lineHeight = font.getSize() * 1.25f;
+        float baseline = rect.top() + font.getSize();
+        size_t lineStart = 0;
+        while (lineStart <= shape.text.size()) {
+            const size_t lineEnd = shape.text.find('\n', lineStart);
+            const std::string line = shape.text.substr(
+                lineStart,
+                lineEnd == std::string::npos ? std::string::npos : lineEnd - lineStart
+            );
+            if (!line.empty()) {
+                canvas->drawString(line.c_str(), rect.left(), baseline, font, fill);
+            }
+            if (lineEnd == std::string::npos) {
+                break;
+            }
+            lineStart = lineEnd + 1;
+            baseline += lineHeight;
+        }
     } else {
         if (shape.type == ShapeType::Image && shape.image) {
             canvas->save();
@@ -753,6 +939,7 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 
     RenderPanels();
     RenderToolbar();
+    RenderTextEditor();
 }
 
 void Application::Shutdown() {

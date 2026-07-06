@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <GLFW/glfw3.h>
 #include <vector>
 
@@ -52,15 +54,23 @@ private:
     bool isDrawingLine_ = false;
     Tool drawingLineTool_ = Tool::Line;
     Vec2 lineStartWorld_;
+    int editingTextIndex_ = -1;
+    int textEditCursor_ = 0;
+    bool focusTextEditor_ = false;
+    std::array<char, 4096> textEditBuffer_{};
     std::vector<SnapGuide> snapGuides_;
 
     void HandleInput();
     void Render(float dpr, int framebufferWidth, int framebufferHeight);
     void RenderPanels();
     void RenderToolbar();
+    void RenderTextEditor();
     void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight);
     void RenderShape(SkCanvas *canvas, const Shape &shape);
     void AddShapeFromTool(Tool tool);
+    void BeginTextEditing(int shapeIndex);
+    void FinishTextEditing();
+    void InsertTextEditorNewline();
     void BeginLineDrawing(Tool tool, Vec2 startWorld);
     void UpdateLineDrawing(Vec2 endWorld);
     void FinishLineDrawing();
