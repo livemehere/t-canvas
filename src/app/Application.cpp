@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <utility>
 
@@ -17,7 +18,9 @@
 #include <skia/core/SkFontMgr.h>
 #include <skia/core/SkFontStyle.h>
 #include <skia/core/SkImage.h>
+#include <skia/core/SkImageInfo.h>
 #include <skia/core/SkPaint.h>
+#include <skia/core/SkPixmap.h>
 #include <skia/core/SkPath.h>
 #include <skia/core/SkPathUtils.h>
 #include <skia/core/SkRRect.h>
@@ -27,6 +30,7 @@
 #include <skia/core/SkTileMode.h>
 #include <skia/core/SkTypeface.h>
 #include <skia/effects/SkImageFilters.h>
+#include <skia/encode/SkPngEncoder.h>
 #include <skia/ports/SkFontMgr_mac_ct.h>
 
 #include "../platform/FileDialog.h"
@@ -111,6 +115,10 @@ bool IsLineTool(Application::Tool tool) {
     return tool == Application::Tool::Line || tool == Application::Tool::Arrow;
 }
 
+bool IsBoxTool(Application::Tool tool) {
+    return tool == Application::Tool::Rect || tool == Application::Tool::Circle;
+}
+
 void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
     const Vec2 delta = end - start;
     const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
@@ -129,6 +137,10 @@ int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
 SkPoint DevicePoint(Vec2 world, const CanvasView &view, float dpr) {
     const Vec2 screen = view.WorldToScreen(world);
     return SkPoint::Make(screen.x * dpr, screen.y * dpr);
+}
+
+SkPoint ExportPoint(Vec2 world, float left, float top, float scaleX, float scaleY) {
+    return SkPoint::Make((world.x - left) * scaleX, (world.y - top) * scaleY);
 }
 } // namespace
 
@@ -204,14 +216,16 @@ void Application::HandleInput() {
 
     if (editingTextIndex_ < 0 && !io.WantCaptureKeyboard &&
         (ImGui::IsKeyPressed(ImGuiKey_Backspace) || ImGui::IsKeyPressed(ImGuiKey_Delete))) {
-        if (document_.SelectedShape()) {
+        if (!document_.SelectedShapeIndices().empty()) {
             PushHistory();
         }
-        document_.RemoveSelectedShape();
+        document_.RemoveSelectedShapes();
         transformer_.EndDrag();
         snapGuides_.clear();
         isDrawingLine_ = false;
+        isDrawingBox_ = false;
         isDrawingBrush_ = false;
+        groupTransformActive_ = false;
     }
 
     if (io.MouseWheel != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
@@ -237,12 +251,30 @@ void Application::HandleInput() {
 
     isPanningCanvas_ = false;
 
+    if (isSelectingArea_) {
+        selectionCurrentScreen_ = mouse;
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            document_.SelectShapes(ShapesInSelectionArea());
+            isSelectingArea_ = false;
+        }
+        return;
+    }
+
     if (isDrawingLine_) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             UpdateLineDrawing(mouseWorld);
             return;
         }
         FinishLineDrawing();
+        return;
+    }
+
+    if (isDrawingBox_) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            UpdateBoxDrawing(mouseWorld);
+            return;
+        }
+        FinishBoxDrawing();
         return;
     }
 
@@ -259,6 +291,8 @@ void Application::HandleInput() {
         if (activeTool_ != Tool::Select) {
             if (IsLineTool(activeTool_)) {
                 BeginLineDrawing(activeTool_, mouseWorld);
+            } else if (IsBoxTool(activeTool_)) {
+                BeginBoxDrawing(activeTool_, mouseWorld);
             } else if (activeTool_ == Tool::Brush) {
                 BeginBrushStroke(mouseWorld);
             } else if (activeTool_ == Tool::Text) {
@@ -269,19 +303,27 @@ void Application::HandleInput() {
                 }
                 BeginTextEditing(document_.SelectedShapeIndex());
                 activeTool_ = Tool::Select;
-            } else if (activeTool_ != Tool::Image) {
-                AddShapeFromTool(activeTool_);
-                if (Shape *shape = document_.SelectedShape()) {
-                    shape->position = mouseWorld;
-                }
-                activeTool_ = Tool::Select;
             }
             return;
         }
 
         DragMode mode = DragMode::None;
         Shape *selectedShape = document_.SelectedShape();
-        if (selectedShape) {
+
+        const bool hasMultiSelection = document_.SelectedShapeIndices().size() > 1;
+        if (hasMultiSelection) {
+            groupBounds_ = SelectionBounds();
+            mode = transformer_.HitTest(mouse, groupBounds_, view_);
+            if (mode == DragMode::Rotate) {
+                mode = DragMode::None;
+            }
+            if (mode != DragMode::None) {
+                BeginGroupTransform(mode, mouseWorld);
+                return;
+            }
+        }
+
+        if (selectedShape && !hasMultiSelection) {
             mode = transformer_.HitTest(mouse, *selectedShape, view_);
         }
 
@@ -298,6 +340,9 @@ void Application::HandleInput() {
         }
 
         if (mode == DragMode::None) {
+            isSelectingArea_ = true;
+            selectionStartScreen_ = mouse;
+            selectionCurrentScreen_ = mouse;
             document_.SelectShape(-1);
             transformer_.EndDrag();
             selectedShape = nullptr;
@@ -310,7 +355,7 @@ void Application::HandleInput() {
     }
 
     if (Shape *selectedShape = document_.SelectedShape();
-        selectedShape && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) &&
+        selectedShape && !groupTransformActive_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) &&
         transformer_.ActiveMode() != DragMode::None) {
         if (!transformHistoryPushed_) {
             PushHistory();
@@ -324,8 +369,17 @@ void Application::HandleInput() {
         }
     }
 
+    if (groupTransformActive_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+        if (!transformHistoryPushed_) {
+            PushHistory();
+            transformHistoryPushed_ = true;
+        }
+        UpdateGroupTransform(mouseWorld, io.KeyShift);
+    }
+
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
         transformer_.EndDrag();
+        FinishGroupTransform();
         transformHistoryPushed_ = false;
         snapGuides_.clear();
     }
@@ -349,6 +403,16 @@ void Application::HandleShortcuts() {
     }
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         Undo();
+        return;
+    }
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_A)) {
+        std::vector<int> all;
+        all.reserve(document_.Shapes().size());
+        for (int i = 0; i < static_cast<int>(document_.Shapes().size()); ++i) {
+            all.push_back(i);
+        }
+        document_.SelectShapes(std::move(all));
+        transformer_.EndDrag();
         return;
     }
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_C)) {
@@ -412,10 +476,22 @@ void Application::RenderPanels() {
 
     const auto &shapes = document_.Shapes();
     for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
-        const bool selected = document_.SelectedShapeIndex() == i;
+        const bool selected = document_.IsShapeSelected(i);
         ImGui::PushID(i);
         if (ImGui::Selectable(shapes[i].name.c_str(), selected)) {
-            document_.SelectShape(i);
+            if (ImGui::GetIO().KeyShift && lastLayerSelectionIndex_ >= 0) {
+                std::vector<int> range;
+                const int start = std::min(lastLayerSelectionIndex_, i);
+                const int end = std::max(lastLayerSelectionIndex_, i);
+                range.reserve(static_cast<size_t>(end - start + 1));
+                for (int index = start; index <= end; ++index) {
+                    range.push_back(index);
+                }
+                document_.SelectShapes(std::move(range));
+            } else {
+                document_.SelectShape(i);
+                lastLayerSelectionIndex_ = i;
+            }
             transformer_.EndDrag();
         }
         if (ImGui::BeginDragDropSource()) {
@@ -443,7 +519,56 @@ void Application::RenderPanels() {
     ImGui::TextUnformatted("Inspector");
     ImGui::Separator();
     Shape *shape = document_.SelectedShape();
-    if (shape) {
+    const std::vector<int> selectedIndices = document_.SelectedShapeIndices();
+    if (selectedIndices.size() > 1) {
+        ImGui::Text("%zu selected", selectedIndices.size());
+        ImGui::SeparatorText("Common");
+
+        Color fill = document_.Shapes()[selectedIndices.front()].fill;
+        Color border = document_.Shapes()[selectedIndices.front()].border;
+        float borderWidth = document_.Shapes()[selectedIndices.front()].borderWidth;
+        float radius = document_.Shapes()[selectedIndices.front()].cornerRadius;
+        bool blurBackground = document_.Shapes()[selectedIndices.front()].blurBackground;
+        float blurRadius = document_.Shapes()[selectedIndices.front()].blurRadius;
+
+        auto applySelected = [&](auto fn) {
+            PushHistory();
+            for (int index: selectedIndices) {
+                fn(document_.Shapes()[index]);
+            }
+        };
+
+        if (ImGui::ColorEdit4("Fill", &fill.r)) {
+            applySelected([&](Shape &target) { target.fill = fill; });
+        }
+        if (ImGui::ColorEdit4("Border", &border.r)) {
+            applySelected([&](Shape &target) { target.border = border; });
+        }
+        if (ImGui::DragFloat("Border Width", &borderWidth, 0.25f, 0.0f, 100.0f)) {
+            borderWidth = Clamp(borderWidth, 0.0f, 100.0f);
+            applySelected([&](Shape &target) { target.borderWidth = borderWidth; });
+        }
+        if (ImGui::DragFloat("Radius", &radius, 0.5f, 0.0f, 1000.0f)) {
+            radius = Clamp(radius, 0.0f, 1000.0f);
+            applySelected([&](Shape &target) { target.cornerRadius = radius; });
+        }
+        if (ImGui::Checkbox("Background Blur", &blurBackground)) {
+            applySelected([&](Shape &target) { target.blurBackground = blurBackground; });
+        }
+        if (ImGui::DragFloat("Blur Radius", &blurRadius, 0.25f, 0.0f, 80.0f)) {
+            blurRadius = Clamp(blurRadius, 0.0f, 80.0f);
+            applySelected([&](Shape &target) { target.blurRadius = blurRadius; });
+        }
+
+        ImGui::BeginDisabled();
+        ImGui::SeparatorText("Transform");
+        float disabledVec[2] = {};
+        ImGui::DragFloat2("Position", disabledVec);
+        ImGui::DragFloat2("Size", disabledVec);
+        float disabledRotation = 0.0f;
+        ImGui::DragFloat("Rotation", &disabledRotation);
+        ImGui::EndDisabled();
+    } else if (shape) {
         char nameBuffer[128] = {};
         std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", shape->name.c_str());
         bool captureInspectorEdit = false;
@@ -499,7 +624,7 @@ void Application::RenderPanels() {
 
 void Application::RenderToolbar() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float toolbarWidth = 760.0f;
+    constexpr float toolbarWidth = 842.0f;
     constexpr float toolbarHeight = 52.0f;
     const ImVec2 pos{
         viewport->WorkPos.x + (viewport->WorkSize.x - toolbarWidth) * 0.5f,
@@ -547,6 +672,9 @@ void Application::RenderToolbar() {
     toolButton(Tool::Text, "Text");
     toolButton(Tool::Image, "Image");
     toolButton(Tool::Brush, "Brush");
+    if (ImGui::Button("Export", ImVec2(74.0f, 32.0f))) {
+        OpenExportDialog();
+    }
 
     ImGui::End();
 }
@@ -621,6 +749,50 @@ void Application::RenderTextEditor() {
 
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar();
+    ImGui::End();
+}
+
+void Application::RenderExportDialog() {
+    if (!showExportDialog_) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 188.0f), ImGuiCond_Appearing);
+    ImGui::Begin("Export Selection", &showExportDialog_,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+
+    bool changed = false;
+    changed = ImGui::InputInt("Width", &exportWidth_) || changed;
+    changed = ImGui::InputInt("Height", &exportHeight_) || changed;
+    exportWidth_ = std::max(1, exportWidth_);
+    exportHeight_ = std::max(1, exportHeight_);
+
+    if (changed || !cachedExportData_ ||
+        cachedExportWidth_ != exportWidth_ || cachedExportHeight_ != exportHeight_) {
+        cachedExportData_ = EncodeSelectionPng(exportWidth_, exportHeight_);
+        cachedExportWidth_ = exportWidth_;
+        cachedExportHeight_ = exportHeight_;
+    }
+
+    const size_t byteSize = cachedExportData_ ? cachedExportData_->size() : 0;
+    ImGui::Text("Size: %d x %d", exportWidth_, exportHeight_);
+    ImGui::Text("PNG: %.1f KB", static_cast<float>(byteSize) / 1024.0f);
+
+    ImGui::Separator();
+    const bool canExport = cachedExportData_ != nullptr;
+    ImGui::BeginDisabled(!canExport);
+    if (ImGui::Button("Copy to Clipboard", ImVec2(152.0f, 32.0f))) {
+        WriteClipboardImageData(cachedExportData_);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save File", ImVec2(112.0f, 32.0f))) {
+        const std::string path = SavePngFileDialog();
+        if (!path.empty()) {
+            SaveDataToFile(path, cachedExportData_);
+        }
+    }
+    ImGui::EndDisabled();
+
     ImGui::End();
 }
 
@@ -727,23 +899,50 @@ void Application::AddImageFromClipboard() {
 }
 
 void Application::CopySelection() {
-    const Shape *shape = document_.SelectedShape();
-    if (!shape) {
+    const auto &selected = document_.SelectedShapeIndices();
+    if (selected.empty()) {
         return;
     }
 
-    copiedShape_ = *shape;
-    hasCopiedShape_ = true;
+    copiedShapes_.clear();
+    copiedShapes_.reserve(selected.size());
+    for (int index: selected) {
+        copiedShapes_.push_back(document_.Shapes()[index]);
+    }
+    hasCopiedShape_ = !copiedShapes_.empty();
+
+    const Shape bounds = SelectionBounds();
+    const int width = static_cast<int>(std::ceil(bounds.size.x));
+    const int height = static_cast<int>(std::ceil(bounds.size.y));
+    if (WriteClipboardImageData(EncodeSelectionPng(width, height))) {
+        copiedClipboardChangeCount_ = ClipboardChangeCount();
+    }
 }
 
 void Application::PasteSelectionOrClipboardImage() {
-    if (hasCopiedShape_) {
-        Shape pasted = copiedShape_;
-        pasted.name += " Copy";
-        pasted.position = pasted.position + Vec2{24.0f, 24.0f};
+    const bool clipboardStillInternal =
+        hasCopiedShape_ &&
+        copiedClipboardChangeCount_ >= 0 &&
+        ClipboardChangeCount() == copiedClipboardChangeCount_;
+
+    if (clipboardStillInternal) {
+        std::vector<Shape> pastedShapes;
+        pastedShapes.reserve(copiedShapes_.size());
+        for (Shape shape: copiedShapes_) {
+            shape.name += " Copy";
+            shape.position = shape.position + Vec2{24.0f, 24.0f};
+            pastedShapes.push_back(std::move(shape));
+        }
+
         PushHistory();
-        document_.AddShape(std::move(pasted));
-        copiedShape_ = *document_.SelectedShape();
+        document_.Shapes().insert(document_.Shapes().begin(), pastedShapes.begin(), pastedShapes.end());
+        std::vector<int> selected;
+        selected.reserve(pastedShapes.size());
+        for (int i = 0; i < static_cast<int>(pastedShapes.size()); ++i) {
+            selected.push_back(i);
+        }
+        document_.SelectShapes(std::move(selected));
+        copiedShapes_ = std::move(pastedShapes);
         transformer_.EndDrag();
         return;
     }
@@ -764,17 +963,177 @@ void Application::PasteSelectionOrClipboardImage() {
         transformer_.EndDrag();
         return;
     }
+
+    if (hasCopiedShape_) {
+        std::vector<Shape> pastedShapes;
+        pastedShapes.reserve(copiedShapes_.size());
+        for (Shape shape: copiedShapes_) {
+            shape.name += " Copy";
+            shape.position = shape.position + Vec2{24.0f, 24.0f};
+            pastedShapes.push_back(std::move(shape));
+        }
+
+        PushHistory();
+        document_.Shapes().insert(document_.Shapes().begin(), pastedShapes.begin(), pastedShapes.end());
+        std::vector<int> selected;
+        selected.reserve(pastedShapes.size());
+        for (int i = 0; i < static_cast<int>(pastedShapes.size()); ++i) {
+            selected.push_back(i);
+        }
+        document_.SelectShapes(std::move(selected));
+        copiedShapes_ = std::move(pastedShapes);
+        transformer_.EndDrag();
+    }
+}
+
+sk_sp<SkData> Application::EncodeSelectionPng(int width, int height) const {
+    const auto &selected = document_.SelectedShapeIndices();
+    if (selected.empty() || width <= 0 || height <= 0) {
+        return nullptr;
+    }
+
+    const Shape bounds = SelectionBounds();
+    if (bounds.size.x <= 0.0f || bounds.size.y <= 0.0f) {
+        return nullptr;
+    }
+
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(width, height));
+    if (!surface) {
+        return nullptr;
+    }
+
+    SkCanvas *canvas = surface->getCanvas();
+    canvas->clear(SK_ColorTRANSPARENT);
+    const float left = bounds.position.x - bounds.size.x * 0.5f;
+    const float top = bounds.position.y - bounds.size.y * 0.5f;
+    const float scaleX = static_cast<float>(width) / bounds.size.x;
+    const float scaleY = static_cast<float>(height) / bounds.size.y;
+    canvas->save();
+    canvas->scale(scaleX, scaleY);
+    canvas->translate(-left, -top);
+
+    const auto &shapes = document_.Shapes();
+    for (int i = static_cast<int>(shapes.size()) - 1; i >= 0; --i) {
+        RenderShape(canvas, shapes[i]);
+    }
+    canvas->restore();
+
+    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
+    if (snapshot) {
+        auto addRectMask = [&](const Shape &shape, SkPath &path) {
+            const auto corners = GetShapeCorners(shape);
+            SkPoint p = ExportPoint(corners[0], left, top, scaleX, scaleY);
+            path.moveTo(p);
+            for (int i = 1; i < 4; ++i) {
+                p = ExportPoint(corners[i], left, top, scaleX, scaleY);
+                path.lineTo(p);
+            }
+            path.close();
+        };
+
+        auto addBrushMask = [&](const Shape &shape, SkPath &path) {
+            if (shape.brushPoints.empty()) {
+                return;
+            }
+
+            SkPath stroke;
+            SkPoint p = ExportPoint(LocalToWorld(shape.brushPoints.front(), shape), left, top, scaleX, scaleY);
+            stroke.moveTo(p);
+            if (shape.brushPoints.size() == 1) {
+                path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * (scaleX + scaleY) * 0.5f);
+                return;
+            }
+
+            for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+                p = ExportPoint(LocalToWorld(shape.brushPoints[i], shape), left, top, scaleX, scaleY);
+                stroke.lineTo(p);
+            }
+
+            SkPaint strokePaint;
+            strokePaint.setAntiAlias(true);
+            strokePaint.setStyle(SkPaint::kStroke_Style);
+            strokePaint.setStrokeCap(SkPaint::kRound_Cap);
+            strokePaint.setStrokeJoin(SkPaint::kRound_Join);
+            strokePaint.setStrokeWidth(shape.brushSize * (scaleX + scaleY) * 0.5f);
+            skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
+        };
+
+        for (const Shape &shape: shapes) {
+            if (!shape.blurBackground) {
+                continue;
+            }
+
+            SkPath mask;
+            if (shape.type == ShapeType::Brush) {
+                addBrushMask(shape, mask);
+            } else {
+                addRectMask(shape, mask);
+            }
+            if (mask.isEmpty()) {
+                continue;
+            }
+
+            SkPaint blurPaint;
+            blurPaint.setAntiAlias(true);
+            const float sigma = std::max(0.0f, shape.blurRadius) * (scaleX + scaleY) * 0.5f;
+            blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
+
+            canvas->save();
+            canvas->clipPath(mask, true);
+            canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
+            canvas->restore();
+        }
+    }
+
+    SkPixmap pixmap;
+    if (!surface->peekPixels(&pixmap)) {
+        return nullptr;
+    }
+
+    SkPngEncoder::Options options;
+    return SkPngEncoder::Encode(pixmap, options);
+}
+
+void Application::OpenExportDialog() {
+    if (document_.SelectedShapeIndices().empty()) {
+        return;
+    }
+
+    const Shape bounds = SelectionBounds();
+    exportWidth_ = std::max(1, static_cast<int>(std::ceil(bounds.size.x)));
+    exportHeight_ = std::max(1, static_cast<int>(std::ceil(bounds.size.y)));
+    cachedExportWidth_ = 0;
+    cachedExportHeight_ = 0;
+    cachedExportData_ = nullptr;
+    showExportDialog_ = true;
+}
+
+bool Application::SaveDataToFile(const std::string &path, sk_sp<SkData> data) const {
+    if (path.empty() || !data) {
+        return false;
+    }
+
+    std::ofstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    file.write(static_cast<const char *>(data->data()), static_cast<std::streamsize>(data->size()));
+    return file.good();
 }
 
 Application::DocumentSnapshot Application::CaptureDocumentSnapshot() const {
-    return {document_.Shapes(), document_.SelectedShapeIndex()};
+    return {document_.Shapes(), document_.SelectedShapeIndices()};
 }
 
 void Application::RestoreDocumentSnapshot(const DocumentSnapshot &snapshot) {
-    document_.ReplaceContents(snapshot.shapes, snapshot.selectedShape);
+    document_.ReplaceContents(snapshot.shapes, snapshot.selectedShapes);
     transformer_.EndDrag();
     snapGuides_.clear();
     isDrawingLine_ = false;
+    isDrawingBox_ = false;
+    isDrawingBrush_ = false;
+    isSelectingArea_ = false;
+    groupTransformActive_ = false;
     editingTextIndex_ = -1;
 }
 
@@ -807,6 +1166,127 @@ void Application::Redo() {
     const DocumentSnapshot snapshot = std::move(redoStack_.back());
     redoStack_.pop_back();
     RestoreDocumentSnapshot(snapshot);
+}
+
+Shape Application::SelectionBounds() const {
+    Shape bounds;
+    bounds.type = ShapeType::Rect;
+    bounds.rotation = 0.0f;
+
+    const auto &indices = document_.SelectedShapeIndices();
+    if (indices.empty()) {
+        bounds.size = {0.0f, 0.0f};
+        return bounds;
+    }
+
+    bool hasBounds = false;
+    float left = 0.0f;
+    float right = 0.0f;
+    float top = 0.0f;
+    float bottom = 0.0f;
+
+    for (int index: indices) {
+        const Shape &shape = document_.Shapes()[index];
+        const auto corners = GetShapeCorners(shape);
+        const float shapeLeft = std::min({corners[0].x, corners[1].x, corners[2].x, corners[3].x});
+        const float shapeRight = std::max({corners[0].x, corners[1].x, corners[2].x, corners[3].x});
+        const float shapeTop = std::min({corners[0].y, corners[1].y, corners[2].y, corners[3].y});
+        const float shapeBottom = std::max({corners[0].y, corners[1].y, corners[2].y, corners[3].y});
+
+        if (!hasBounds) {
+            left = shapeLeft;
+            right = shapeRight;
+            top = shapeTop;
+            bottom = shapeBottom;
+            hasBounds = true;
+        } else {
+            left = std::min(left, shapeLeft);
+            right = std::max(right, shapeRight);
+            top = std::min(top, shapeTop);
+            bottom = std::max(bottom, shapeBottom);
+        }
+    }
+
+    bounds.position = {(left + right) * 0.5f, (top + bottom) * 0.5f};
+    bounds.size = {std::max(1.0f, right - left), std::max(1.0f, bottom - top)};
+    return bounds;
+}
+
+std::vector<int> Application::ShapesInSelectionArea() const {
+    const float left = std::min(selectionStartScreen_.x, selectionCurrentScreen_.x);
+    const float right = std::max(selectionStartScreen_.x, selectionCurrentScreen_.x);
+    const float top = std::min(selectionStartScreen_.y, selectionCurrentScreen_.y);
+    const float bottom = std::max(selectionStartScreen_.y, selectionCurrentScreen_.y);
+
+    std::vector<int> selected;
+    const auto &shapes = document_.Shapes();
+    for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+        const auto corners = GetShapeCorners(shapes[i]);
+        float shapeLeft = view_.WorldToScreen(corners[0]).x;
+        float shapeRight = shapeLeft;
+        float shapeTop = view_.WorldToScreen(corners[0]).y;
+        float shapeBottom = shapeTop;
+        for (int c = 1; c < 4; ++c) {
+            const Vec2 screen = view_.WorldToScreen(corners[c]);
+            shapeLeft = std::min(shapeLeft, screen.x);
+            shapeRight = std::max(shapeRight, screen.x);
+            shapeTop = std::min(shapeTop, screen.y);
+            shapeBottom = std::max(shapeBottom, screen.y);
+        }
+
+        const bool overlaps = shapeLeft <= right && shapeRight >= left && shapeTop <= bottom && shapeBottom >= top;
+        if (overlaps) {
+            selected.push_back(i);
+        }
+    }
+    return selected;
+}
+
+void Application::BeginGroupTransform(DragMode mode, Vec2 mouseWorld) {
+    groupTransformActive_ = true;
+    groupStartMouseWorld_ = mouseWorld;
+    groupBounds_ = SelectionBounds();
+    groupStartBounds_ = groupBounds_;
+    groupStartIndices_ = document_.SelectedShapeIndices();
+    groupStartShapes_.clear();
+    groupStartShapes_.reserve(groupStartIndices_.size());
+    for (int index: groupStartIndices_) {
+        groupStartShapes_.push_back(document_.Shapes()[index]);
+    }
+    transformHistoryPushed_ = false;
+    transformer_.BeginDrag(mode, mouseWorld, groupBounds_);
+}
+
+void Application::UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio) {
+    Shape nextBounds = groupStartBounds_;
+    transformer_.UpdateDrag(mouseWorld, nextBounds, keepAspectRatio);
+
+    const float sx = groupStartBounds_.size.x == 0.0f ? 1.0f : nextBounds.size.x / groupStartBounds_.size.x;
+    const float sy = groupStartBounds_.size.y == 0.0f ? 1.0f : nextBounds.size.y / groupStartBounds_.size.y;
+
+    for (size_t i = 0; i < groupStartIndices_.size(); ++i) {
+        Shape next = groupStartShapes_[i];
+        const Vec2 offset = groupStartShapes_[i].position - groupStartBounds_.position;
+        next.position = nextBounds.position + Vec2{offset.x * sx, offset.y * sy};
+        next.size = {std::max(1.0f, groupStartShapes_[i].size.x * std::abs(sx)),
+                     std::max(1.0f, groupStartShapes_[i].size.y * std::abs(sy))};
+        next.brushSize = std::max(1.0f, groupStartShapes_[i].brushSize * (std::abs(sx) + std::abs(sy)) * 0.5f);
+        if (next.type == ShapeType::Brush) {
+            next.brushPoints.clear();
+            for (Vec2 point: groupStartShapes_[i].brushPoints) {
+                next.brushPoints.push_back({point.x * sx, point.y * sy});
+            }
+        }
+        document_.Shapes()[groupStartIndices_[i]] = std::move(next);
+    }
+
+    groupBounds_ = nextBounds;
+}
+
+void Application::FinishGroupTransform() {
+    groupTransformActive_ = false;
+    groupStartIndices_.clear();
+    groupStartShapes_.clear();
 }
 
 void Application::BeginTextEditing(int shapeIndex) {
@@ -877,6 +1357,47 @@ void Application::UpdateLineDrawing(Vec2 endWorld) {
 
 void Application::FinishLineDrawing() {
     isDrawingLine_ = false;
+    activeTool_ = Tool::Select;
+    transformer_.EndDrag();
+}
+
+void Application::BeginBoxDrawing(Tool tool, Vec2 startWorld) {
+    Shape shape;
+    shape.type = tool == Tool::Circle ? ShapeType::Circle : ShapeType::Rect;
+    shape.name = std::string(tool == Tool::Circle ? "Circle " : "Rectangle ") +
+        std::to_string(document_.Shapes().size() + 1);
+    if (tool == Tool::Circle) {
+        shape.cornerRadius = 1000.0f;
+    }
+
+    boxStartWorld_ = startWorld;
+    drawingBoxTool_ = tool;
+    shape.position = startWorld;
+    shape.size = {1.0f, 1.0f};
+
+    PushHistory();
+    document_.AddShape(std::move(shape));
+    isDrawingBox_ = true;
+    transformer_.EndDrag();
+}
+
+void Application::UpdateBoxDrawing(Vec2 endWorld) {
+    Shape *shape = document_.SelectedShape();
+    if (!shape || !IsBoxTool(drawingBoxTool_)) {
+        isDrawingBox_ = false;
+        return;
+    }
+
+    const float left = std::min(boxStartWorld_.x, endWorld.x);
+    const float right = std::max(boxStartWorld_.x, endWorld.x);
+    const float top = std::min(boxStartWorld_.y, endWorld.y);
+    const float bottom = std::max(boxStartWorld_.y, endWorld.y);
+    shape->position = {(left + right) * 0.5f, (top + bottom) * 0.5f};
+    shape->size = {std::max(1.0f, right - left), std::max(1.0f, bottom - top)};
+}
+
+void Application::FinishBoxDrawing() {
+    isDrawingBox_ = false;
     activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
@@ -999,7 +1520,7 @@ void Application::RenderGridAndRulers(
     }
 }
 
-void Application::RenderShape(SkCanvas *canvas, const Shape &shape) {
+void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
     if (shape.type == ShapeType::Brush) {
         return;
     }
@@ -1168,6 +1689,67 @@ void Application::RenderBlurOverlays(SkCanvas *canvas, float dpr) {
     }
 }
 
+void Application::RenderSelectionArea(SkCanvas *canvas, float dpr) {
+    if (!isSelectingArea_) {
+        return;
+    }
+
+    const float left = std::min(selectionStartScreen_.x, selectionCurrentScreen_.x);
+    const float right = std::max(selectionStartScreen_.x, selectionCurrentScreen_.x);
+    const float top = std::min(selectionStartScreen_.y, selectionCurrentScreen_.y);
+    const float bottom = std::max(selectionStartScreen_.y, selectionCurrentScreen_.y);
+    const SkRect rect = SkRect::MakeLTRB(left * dpr, top * dpr, right * dpr, bottom * dpr);
+
+    SkPaint fill;
+    fill.setAntiAlias(true);
+    fill.setStyle(SkPaint::kFill_Style);
+    fill.setColor(SkColorSetARGB(34, 120, 170, 230));
+    canvas->drawRect(rect, fill);
+
+    SkPaint stroke;
+    stroke.setAntiAlias(true);
+    stroke.setStyle(SkPaint::kStroke_Style);
+    stroke.setStrokeWidth(1.0f * dpr);
+    stroke.setColor(SkColorSetARGB(180, 150, 190, 240));
+    canvas->drawRect(rect, stroke);
+}
+
+void Application::RenderGroupTransformer(SkCanvas *canvas) {
+    if (document_.SelectedShapeIndices().size() <= 1) {
+        return;
+    }
+
+    const Shape bounds = groupTransformActive_ ? groupBounds_ : SelectionBounds();
+    const auto corners = GetShapeCorners(bounds);
+
+    SkPaint outline;
+    outline.setAntiAlias(true);
+    outline.setColor(SkColorSetARGB(155, 170, 185, 205));
+    outline.setStyle(SkPaint::kStroke_Style);
+    outline.setStrokeWidth(1.0f);
+
+    SkPath path;
+    Vec2 p = view_.WorldToScreen(corners[0]);
+    path.moveTo(p.x, p.y);
+    for (int i = 1; i < 4; ++i) {
+        p = view_.WorldToScreen(corners[i]);
+        path.lineTo(p.x, p.y);
+    }
+    path.close();
+    canvas->drawPath(path, outline);
+
+    SkPaint handle;
+    handle.setAntiAlias(true);
+    handle.setColor(SkColorSetARGB(230, 224, 232, 242));
+    handle.setStyle(SkPaint::kFill_Style);
+
+    constexpr float half = 4.0f;
+    for (Vec2 corner: corners) {
+        const Vec2 screen = view_.WorldToScreen(corner);
+        canvas->drawRect(SkRect::MakeXYWH(screen.x - half, screen.y - half, half * 2.0f, half * 2.0f), handle);
+    }
+}
+
 bool Application::IsSnapDisabled() const {
     const ImGuiIO &io = ImGui::GetIO();
     return io.KeyAlt || io.KeyCtrl || io.KeySuper;
@@ -1285,7 +1867,12 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 
     RenderBlurOverlays(canvas, dpr);
 
-    if (const Shape *selectedShape = document_.SelectedShape()) {
+    if (document_.SelectedShapeIndices().size() > 1) {
+        canvas->save();
+        canvas->scale(dpr, dpr);
+        RenderGroupTransformer(canvas);
+        canvas->restore();
+    } else if (const Shape *selectedShape = document_.SelectedShape()) {
         canvas->save();
         canvas->scale(dpr, dpr);
         transformer_.Draw(canvas, *selectedShape, view_);
@@ -1320,11 +1907,14 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
     RenderGridAndRulers(canvas, logicalWidth, logicalHeight, false, true);
     canvas->restore();
 
+    RenderSelectionArea(canvas, dpr);
+
     skia_.EndFrame();
 
     RenderPanels();
     RenderToolbar();
     RenderTextEditor();
+    RenderExportDialog();
 }
 
 void Application::Shutdown() {

@@ -1,5 +1,7 @@
 #include "CanvasDocument.h"
 
+#include <algorithm>
+#include <functional>
 #include <string>
 #include <utility>
 
@@ -9,6 +11,7 @@ CanvasDocument::CanvasDocument() {
     rect.type = ShapeType::Rect;
     shapes_.push_back(rect);
     selectedShape_ = 0;
+    selectedShapes_ = {0};
 }
 
 std::vector<Shape> &CanvasDocument::Shapes() {
@@ -21,6 +24,14 @@ const std::vector<Shape> &CanvasDocument::Shapes() const {
 
 int CanvasDocument::SelectedShapeIndex() const {
     return selectedShape_;
+}
+
+const std::vector<int> &CanvasDocument::SelectedShapeIndices() const {
+    return selectedShapes_;
+}
+
+bool CanvasDocument::IsShapeSelected(int index) const {
+    return std::find(selectedShapes_.begin(), selectedShapes_.end(), index) != selectedShapes_.end();
 }
 
 Shape *CanvasDocument::SelectedShape() {
@@ -40,14 +51,30 @@ const Shape *CanvasDocument::SelectedShape() const {
 void CanvasDocument::SelectShape(int index) {
     if (index < 0 || index >= static_cast<int>(shapes_.size())) {
         selectedShape_ = -1;
+        selectedShapes_.clear();
         return;
     }
     selectedShape_ = index;
+    selectedShapes_ = {index};
 }
 
-void CanvasDocument::ReplaceContents(std::vector<Shape> shapes, int selectedShape) {
+void CanvasDocument::SelectShapes(std::vector<int> indices) {
+    indices.erase(
+        std::remove_if(indices.begin(), indices.end(), [&](int index) {
+            return index < 0 || index >= static_cast<int>(shapes_.size());
+        }),
+        indices.end()
+    );
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    selectedShapes_ = std::move(indices);
+    selectedShape_ = selectedShapes_.empty() ? -1 : selectedShapes_.front();
+}
+
+void CanvasDocument::ReplaceContents(std::vector<Shape> shapes, std::vector<int> selectedShapes) {
     shapes_ = std::move(shapes);
-    SelectShape(selectedShape);
+    SelectShapes(std::move(selectedShapes));
 }
 
 int CanvasDocument::AddRectangle() {
@@ -60,25 +87,36 @@ int CanvasDocument::AddRectangle() {
     };
     shapes_.push_back(rect);
     selectedShape_ = static_cast<int>(shapes_.size()) - 1;
+    selectedShapes_ = {selectedShape_};
     return selectedShape_;
 }
 
 int CanvasDocument::AddShape(Shape shape) {
     shapes_.insert(shapes_.begin(), std::move(shape));
     selectedShape_ = 0;
+    selectedShapes_ = {0};
     return selectedShape_;
 }
 
-void CanvasDocument::RemoveSelectedShape() {
-    if (selectedShape_ < 0 || selectedShape_ >= static_cast<int>(shapes_.size())) {
+void CanvasDocument::RemoveSelectedShapes() {
+    if (selectedShapes_.empty()) {
         return;
     }
 
-    shapes_.erase(shapes_.begin() + selectedShape_);
+    std::vector<int> indices = selectedShapes_;
+    std::sort(indices.begin(), indices.end(), std::greater<int>());
+    for (int index: indices) {
+        if (index >= 0 && index < static_cast<int>(shapes_.size())) {
+            shapes_.erase(shapes_.begin() + index);
+        }
+    }
+
     if (shapes_.empty()) {
         selectedShape_ = -1;
-    } else if (selectedShape_ >= static_cast<int>(shapes_.size())) {
-        selectedShape_ = static_cast<int>(shapes_.size()) - 1;
+        selectedShapes_.clear();
+    } else {
+        selectedShape_ = std::min(indices.back(), static_cast<int>(shapes_.size()) - 1);
+        selectedShapes_ = {selectedShape_};
     }
 }
 
@@ -101,4 +139,15 @@ void CanvasDocument::MoveShape(int fromIndex, int toIndex) {
     } else if (toIndex <= selectedShape_ && selectedShape_ < fromIndex) {
         ++selectedShape_;
     }
+
+    for (int &index: selectedShapes_) {
+        if (index == fromIndex) {
+            index = toIndex;
+        } else if (fromIndex < index && index <= toIndex) {
+            --index;
+        } else if (toIndex <= index && index < fromIndex) {
+            ++index;
+        }
+    }
+    std::sort(selectedShapes_.begin(), selectedShapes_.end());
 }

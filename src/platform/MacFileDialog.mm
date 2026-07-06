@@ -35,6 +35,26 @@ std::string OpenImageFileDialog() {
     }
 }
 
+std::string SavePngFileDialog() {
+    @autoreleasepool {
+        NSSavePanel *panel = [NSSavePanel savePanel];
+        panel.canCreateDirectories = YES;
+        panel.nameFieldStringValue = @"tc-export.png";
+        if (@available(macOS 11.0, *)) {
+            panel.allowedContentTypes = @[[UTType typeWithFilenameExtension:@"png"]];
+        } else {
+            panel.allowedFileTypes = @[@"png"];
+        }
+
+        if ([panel runModal] != NSModalResponseOK) {
+            return {};
+        }
+
+        NSString *path = panel.URL.path;
+        return path ? std::string(path.UTF8String) : std::string();
+    }
+}
+
 sk_sp<SkData> ReadClipboardImageData() {
     @autoreleasepool {
         NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
@@ -107,5 +127,24 @@ sk_sp<SkData> ReadClipboardImageData() {
 
         NSData *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
         return png ? SkData::MakeWithCopy(png.bytes, png.length) : nullptr;
+    }
+}
+
+bool WriteClipboardImageData(sk_sp<SkData> data) {
+    if (!data) {
+        return false;
+    }
+
+    @autoreleasepool {
+        NSData *png = [NSData dataWithBytes:data->data() length:data->size()];
+        NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+        [pasteboard clearContents];
+        return [pasteboard setData:png forType:NSPasteboardTypePNG] == YES;
+    }
+}
+
+int ClipboardChangeCount() {
+    @autoreleasepool {
+        return static_cast<int>([NSPasteboard generalPasteboard].changeCount);
     }
 }
