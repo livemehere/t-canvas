@@ -5,14 +5,7 @@
 #include <string>
 #include <utility>
 
-CanvasDocument::CanvasDocument() {
-    Shape rect;
-    rect.name = "Rectangle 1";
-    rect.type = ShapeType::Rect;
-    shapes_.push_back(rect);
-    selectedShape_ = 0;
-    selectedShapes_ = {0};
-}
+CanvasDocument::CanvasDocument() = default;
 
 std::vector<Shape> &CanvasDocument::Shapes() {
     return shapes_;
