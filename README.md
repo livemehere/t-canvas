@@ -1,5 +1,7 @@
 # TCanvas
 
+[한국어](./README.ko.md)
+
 TCanvas is a lightweight macOS canvas tool for annotating screenshots and visual notes. It is built with C++, GLFW,
 OpenGL, ImGui, and Skia.
 
@@ -86,7 +88,6 @@ For a single selection, you can edit:
 For multiple selections, common style properties can be edited together.
 
 <img width="2230" height="1402" alt="image" src="https://github.com/user-attachments/assets/36a49940-3c3c-453e-8f92-0e8e827578bb" />
-
 
 ## Blur Workflow
 
