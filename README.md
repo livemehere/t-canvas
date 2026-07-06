@@ -6,7 +6,7 @@ OpenGL, ImGui, and Skia.
 The app focuses on fast markup workflows: draw shapes, highlight areas, blur sensitive regions, copy the result, and
 export multiple asset sizes.
 
-<!-- Screenshot: Add a main app screenshot here. Show the empty canvas with grid/rulers, the bottom toolbar, the layer tree on the left, and inspector on the right. -->
+<img width="1555" height="909" alt="image" src="https://github.com/user-attachments/assets/4961d174-f1ae-4b58-8549-757857cfde38" />
 
 ## Features
 
@@ -27,7 +27,7 @@ export multiple asset sizes.
 - Hide, lock, reorder, and select shapes from the layer tree.
 - Configure default styles per shape type.
 
-<!-- Screenshot: Add a focused screenshot of drawing/transforming shapes. Show a selected rectangle or arrow with transformer handles. -->
+<img width="1556" height="906" alt="image" src="https://github.com/user-attachments/assets/d97ea751-e3fe-44aa-8b13-2898a4573ea4" />
 
 ## Canvas Tools
 
@@ -45,7 +45,7 @@ The bottom toolbar contains the main tools:
 | Image  | `I`      | Import an image file as a shape.                                               |
 | Brush  | `B`      | Paint blur regions.                                                            |
 
-<!-- Screenshot: Add a toolbar screenshot here. Capture the bottom floating toolbar and the brush size popover. -->
+<img width="941" height="177" alt="image" src="https://github.com/user-attachments/assets/3727ff81-f79e-4df0-a830-465aebc5fb54" />
 
 ## Layers
 
@@ -62,7 +62,7 @@ Layer actions:
 Locked layers cannot be selected from the canvas. Hidden layers are excluded from rendering, selection, blur, and
 export.
 
-<!-- Screenshot: Add a layer panel screenshot here. Show several layers with visibility and lock buttons. -->
+<img width="622" height="687" alt="image" src="https://github.com/user-attachments/assets/310696fe-68f1-42f3-91ee-d7539a31061c" />
 
 ## Inspector
 
@@ -85,7 +85,8 @@ For a single selection, you can edit:
 
 For multiple selections, common style properties can be edited together.
 
-<!-- Screenshot: Add an inspector screenshot here. Show a selected text shape and the Content textarea. -->
+<img width="2230" height="1402" alt="image" src="https://github.com/user-attachments/assets/36a49940-3c3c-453e-8f92-0e8e827578bb" />
+
 
 ## Blur Workflow
 
@@ -96,7 +97,7 @@ TCanvas supports blur in two ways:
 
 Blur regions are included when copying or exporting selected content.
 
-<!-- Screenshot: Add a before/after blur screenshot here. A screenshot with sensitive text blurred works well. -->
+<img width="703" height="457" alt="image" src="https://github.com/user-attachments/assets/25b0c177-7243-4009-b13b-7799f7e2c179" />
 
 ## Clipboard
 
@@ -110,7 +111,7 @@ Clipboard behavior is designed for screenshot annotation workflows:
 
 The bottom-right selection HUD shows the selected export/copy size as `width x height`.
 
-<!-- Screenshot: Add a screenshot of the selection size HUD in the bottom-right corner. -->
+<img width="2058" height="1440" alt="image" src="https://github.com/user-attachments/assets/7ab5b822-209f-4bcf-a34f-dcd7dfc96d8a" />
 
 ## Export
 
@@ -131,7 +132,7 @@ tc_export_800x600.png
 tc_export_1600x1200.png
 ```
 
-<!-- Screenshot: Add an export dialog screenshot here. Show two or three size variations and the preview pane. -->
+<img width="3104" height="1634" alt="image" src="https://github.com/user-attachments/assets/ffb9e515-5438-4d7c-901a-0f0087920da9" />
 
 ## Preferences
 
@@ -153,4 +154,4 @@ Settings are stored locally at:
 ~/Library/Application Support/TCanvas/preferences.ini
 ```
 
-<!-- Screenshot: Add a settings dialog screenshot here. Show shape defaults and the preview cards. -->
+<img width="960" height="759" alt="image" src="https://github.com/user-attachments/assets/eba80097-f9f1-4b57-afd4-1752f86f6f42" />
