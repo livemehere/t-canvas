@@ -193,6 +193,9 @@ void Application::HandleInput() {
 
     if (editingTextIndex_ < 0 && !io.WantCaptureKeyboard &&
         (ImGui::IsKeyPressed(ImGuiKey_Backspace) || ImGui::IsKeyPressed(ImGuiKey_Delete))) {
+        if (document_.SelectedShape()) {
+            PushHistory();
+        }
         document_.RemoveSelectedShape();
         transformer_.EndDrag();
         snapGuides_.clear();
@@ -278,6 +281,7 @@ void Application::HandleInput() {
         }
 
         if (selectedShape && mode != DragMode::None) {
+            transformHistoryPushed_ = false;
             transformer_.BeginDrag(mode, mouseWorld, *selectedShape);
         }
     }
@@ -285,6 +289,10 @@ void Application::HandleInput() {
     if (Shape *selectedShape = document_.SelectedShape();
         selectedShape && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) &&
         transformer_.ActiveMode() != DragMode::None) {
+        if (!transformHistoryPushed_) {
+            PushHistory();
+            transformHistoryPushed_ = true;
+        }
         transformer_.UpdateDrag(mouseWorld, *selectedShape, io.KeyShift);
         if (transformer_.ActiveMode() == DragMode::Move) {
             ApplySnapping(*selectedShape);
@@ -295,6 +303,7 @@ void Application::HandleInput() {
 
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
         transformer_.EndDrag();
+        transformHistoryPushed_ = false;
         snapGuides_.clear();
     }
 
@@ -311,6 +320,14 @@ void Application::HandleShortcuts() {
         glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
         glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
 
+    if (macCommandDown && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+        Redo();
+        return;
+    }
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+        Undo();
+        return;
+    }
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_C)) {
         CopySelection();
         return;
@@ -384,6 +401,7 @@ void Application::RenderPanels() {
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("SHAPE_INDEX")) {
                 const int from = *static_cast<const int *>(payload->Data);
+                PushHistory();
                 document_.MoveShape(from, i);
                 transformer_.EndDrag();
             }
@@ -403,20 +421,33 @@ void Application::RenderPanels() {
     if (shape) {
         char nameBuffer[128] = {};
         std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", shape->name.c_str());
+        bool captureInspectorEdit = false;
         if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer))) {
             shape->name = nameBuffer;
         }
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
         ImGui::SeparatorText("Transform");
         ImGui::DragFloat2("Position", &shape->position.x, 1.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::DragFloat2("Size", &shape->size.x, 1.0f, 20.0f, 4000.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::DragFloat("Rotation", &shape->rotation, 0.5f, -360.0f, 360.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
         ImGui::SeparatorText("Appearance");
         ImGui::ColorEdit4("Fill", &shape->fill.r);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::ColorEdit4("Border", &shape->border.r);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::DragFloat("Border Width", &shape->borderWidth, 0.25f, 0.0f, 100.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::DragFloat("Radius", &shape->cornerRadius, 0.5f, 0.0f, 1000.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+
+        if (captureInspectorEdit) {
+            PushHistory();
+        }
 
         shape->size.x = Clamp(shape->size.x, 20.0f, 4000.0f);
         shape->size.y = Clamp(shape->size.y, 20.0f, 4000.0f);
@@ -625,6 +656,7 @@ void Application::AddShapeFromTool(Tool tool) {
             return;
     }
 
+    PushHistory();
     document_.AddShape(std::move(shape));
 }
 
@@ -643,6 +675,7 @@ void Application::AddImageFromClipboard() {
     shape.size = {static_cast<float>(image->width()), static_cast<float>(image->height())};
     shape.fill = {1.0f, 1.0f, 1.0f, 1.0f};
     shape.borderWidth = 0.0f;
+    PushHistory();
     document_.AddShape(std::move(shape));
 }
 
@@ -661,6 +694,7 @@ void Application::PasteSelectionOrClipboardImage() {
         Shape pasted = copiedShape_;
         pasted.name += " Copy";
         pasted.position = pasted.position + Vec2{24.0f, 24.0f};
+        PushHistory();
         document_.AddShape(std::move(pasted));
         copiedShape_ = *document_.SelectedShape();
         transformer_.EndDrag();
@@ -678,10 +712,54 @@ void Application::PasteSelectionOrClipboardImage() {
         shape.size = {static_cast<float>(image->width()), static_cast<float>(image->height())};
         shape.fill = {1.0f, 1.0f, 1.0f, 1.0f};
         shape.borderWidth = 0.0f;
+        PushHistory();
         document_.AddShape(std::move(shape));
         transformer_.EndDrag();
         return;
     }
+}
+
+Application::DocumentSnapshot Application::CaptureDocumentSnapshot() const {
+    return {document_.Shapes(), document_.SelectedShapeIndex()};
+}
+
+void Application::RestoreDocumentSnapshot(const DocumentSnapshot &snapshot) {
+    document_.ReplaceContents(snapshot.shapes, snapshot.selectedShape);
+    transformer_.EndDrag();
+    snapGuides_.clear();
+    isDrawingLine_ = false;
+    editingTextIndex_ = -1;
+}
+
+void Application::PushHistory() {
+    undoStack_.push_back(CaptureDocumentSnapshot());
+    redoStack_.clear();
+    constexpr size_t maxHistory = 100;
+    if (undoStack_.size() > maxHistory) {
+        undoStack_.erase(undoStack_.begin());
+    }
+}
+
+void Application::Undo() {
+    if (undoStack_.empty()) {
+        return;
+    }
+
+    redoStack_.push_back(CaptureDocumentSnapshot());
+    const DocumentSnapshot snapshot = std::move(undoStack_.back());
+    undoStack_.pop_back();
+    RestoreDocumentSnapshot(snapshot);
+}
+
+void Application::Redo() {
+    if (redoStack_.empty()) {
+        return;
+    }
+
+    undoStack_.push_back(CaptureDocumentSnapshot());
+    const DocumentSnapshot snapshot = std::move(redoStack_.back());
+    redoStack_.pop_back();
+    RestoreDocumentSnapshot(snapshot);
 }
 
 void Application::BeginTextEditing(int shapeIndex) {
@@ -734,6 +812,7 @@ void Application::BeginLineDrawing(Tool tool, Vec2 startWorld) {
     lineStartWorld_ = startWorld;
     drawingLineTool_ = tool;
     SetLineGeometry(shape, startWorld, startWorld);
+    PushHistory();
     document_.AddShape(std::move(shape));
     isDrawingLine_ = true;
     transformer_.EndDrag();

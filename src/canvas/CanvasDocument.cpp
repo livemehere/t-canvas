@@ -45,6 +45,11 @@ void CanvasDocument::SelectShape(int index) {
     selectedShape_ = index;
 }
 
+void CanvasDocument::ReplaceContents(std::vector<Shape> shapes, int selectedShape) {
+    shapes_ = std::move(shapes);
+    SelectShape(selectedShape);
+}
+
 int CanvasDocument::AddRectangle() {
     Shape rect;
     rect.type = ShapeType::Rect;

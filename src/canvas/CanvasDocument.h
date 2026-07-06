@@ -16,6 +16,7 @@ public:
     Shape *SelectedShape();
     const Shape *SelectedShape() const;
     void SelectShape(int index);
+    void ReplaceContents(std::vector<Shape> shapes, int selectedShape);
     int AddRectangle();
     int AddShape(Shape shape);
     void RemoveSelectedShape();

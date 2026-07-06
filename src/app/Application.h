@@ -39,6 +39,11 @@ private:
         float position = 0.0f;
     };
 
+    struct DocumentSnapshot {
+        std::vector<Shape> shapes;
+        int selectedShape = -1;
+    };
+
     GLFWwindow *window_ = nullptr;
     GLFWcursor *defaultCursor_ = nullptr;
     GLFWcursor *handCursor_ = nullptr;
@@ -52,6 +57,7 @@ private:
     bool spacePanActive_ = false;
     bool isPanningCanvas_ = false;
     bool isDrawingLine_ = false;
+    bool transformHistoryPushed_ = false;
     Tool drawingLineTool_ = Tool::Line;
     Vec2 lineStartWorld_;
     int editingTextIndex_ = -1;
@@ -60,6 +66,8 @@ private:
     std::array<char, 4096> textEditBuffer_{};
     bool hasCopiedShape_ = false;
     Shape copiedShape_;
+    std::vector<DocumentSnapshot> undoStack_;
+    std::vector<DocumentSnapshot> redoStack_;
     std::vector<SnapGuide> snapGuides_;
 
     void HandleInput();
@@ -74,6 +82,11 @@ private:
     void AddImageFromClipboard();
     void CopySelection();
     void PasteSelectionOrClipboardImage();
+    DocumentSnapshot CaptureDocumentSnapshot() const;
+    void RestoreDocumentSnapshot(const DocumentSnapshot &snapshot);
+    void PushHistory();
+    void Undo();
+    void Redo();
     void BeginTextEditing(int shapeIndex);
     void FinishTextEditing();
     void InsertTextEditorNewline();
