@@ -19,10 +19,14 @@
 #include <skia/core/SkImage.h>
 #include <skia/core/SkPaint.h>
 #include <skia/core/SkPath.h>
+#include <skia/core/SkPathUtils.h>
 #include <skia/core/SkRRect.h>
 #include <skia/core/SkRect.h>
 #include <skia/core/SkSamplingOptions.h>
+#include <skia/core/SkSurface.h>
+#include <skia/core/SkTileMode.h>
 #include <skia/core/SkTypeface.h>
+#include <skia/effects/SkImageFilters.h>
 #include <skia/ports/SkFontMgr_mac_ct.h>
 
 #include "../platform/FileDialog.h"
@@ -97,6 +101,8 @@ const char *ToolLabel(Application::Tool tool) {
             return "Text";
         case Application::Tool::Image:
             return "Image";
+        case Application::Tool::Brush:
+            return "Brush";
     }
     return "";
 }
@@ -118,6 +124,11 @@ int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
         *static_cast<int *>(data->UserData) = data->CursorPos;
     }
     return 0;
+}
+
+SkPoint DevicePoint(Vec2 world, const CanvasView &view, float dpr) {
+    const Vec2 screen = view.WorldToScreen(world);
+    return SkPoint::Make(screen.x * dpr, screen.y * dpr);
 }
 } // namespace
 
@@ -200,6 +211,7 @@ void Application::HandleInput() {
         transformer_.EndDrag();
         snapGuides_.clear();
         isDrawingLine_ = false;
+        isDrawingBrush_ = false;
     }
 
     if (io.MouseWheel != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
@@ -234,10 +246,21 @@ void Application::HandleInput() {
         return;
     }
 
+    if (isDrawingBrush_) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            UpdateBrushStroke(mouseWorld);
+            return;
+        }
+        FinishBrushStroke();
+        return;
+    }
+
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if (activeTool_ != Tool::Select) {
             if (IsLineTool(activeTool_)) {
                 BeginLineDrawing(activeTool_, mouseWorld);
+            } else if (activeTool_ == Tool::Brush) {
+                BeginBrushStroke(mouseWorld);
             } else if (activeTool_ == Tool::Text) {
                 AddShapeFromTool(activeTool_);
                 if (Shape *shape = document_.SelectedShape()) {
@@ -362,6 +385,8 @@ void Application::HandleShortcuts() {
     } else if (ImGui::IsKeyPressed(ImGuiKey_I)) {
         AddShapeFromTool(Tool::Image);
         activeTool_ = Tool::Select;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_B)) {
+        activeTool_ = Tool::Brush;
     }
 
     if (activeTool_ != Tool::Select) {
@@ -445,6 +470,16 @@ void Application::RenderPanels() {
         ImGui::DragFloat("Radius", &shape->cornerRadius, 0.5f, 0.0f, 1000.0f);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
+        ImGui::SeparatorText("Effects");
+        ImGui::Checkbox("Background Blur", &shape->blurBackground);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        ImGui::DragFloat("Blur Radius", &shape->blurRadius, 0.25f, 0.0f, 80.0f);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        if (shape->type == ShapeType::Brush) {
+            ImGui::DragFloat("Brush Size", &shape->brushSize, 0.5f, 4.0f, 240.0f);
+            captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        }
+
         if (captureInspectorEdit) {
             PushHistory();
         }
@@ -453,6 +488,8 @@ void Application::RenderPanels() {
         shape->size.y = Clamp(shape->size.y, 20.0f, 4000.0f);
         shape->borderWidth = Clamp(shape->borderWidth, 0.0f, 100.0f);
         shape->cornerRadius = Clamp(shape->cornerRadius, 0.0f, 1000.0f);
+        shape->blurRadius = Clamp(shape->blurRadius, 0.0f, 80.0f);
+        shape->brushSize = Clamp(shape->brushSize, 4.0f, 240.0f);
     } else {
         ImGui::TextUnformatted("No selection");
     }
@@ -462,7 +499,7 @@ void Application::RenderPanels() {
 
 void Application::RenderToolbar() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float toolbarWidth = 680.0f;
+    constexpr float toolbarWidth = 760.0f;
     constexpr float toolbarHeight = 52.0f;
     const ImVec2 pos{
         viewport->WorkPos.x + (viewport->WorkSize.x - toolbarWidth) * 0.5f,
@@ -509,6 +546,7 @@ void Application::RenderToolbar() {
     toolButton(Tool::Arrow, "Arrow");
     toolButton(Tool::Text, "Text");
     toolButton(Tool::Image, "Image");
+    toolButton(Tool::Brush, "Brush");
 
     ImGui::End();
 }
@@ -651,6 +689,15 @@ void Application::AddShapeFromTool(Tool tool) {
             shape.borderWidth = 0.0f;
             break;
         }
+        case Tool::Brush:
+            shape.type = ShapeType::Brush;
+            shape.name = "Blur Brush " + std::to_string(document_.Shapes().size() + 1);
+            shape.fill = {1.0f, 1.0f, 1.0f, 0.0f};
+            shape.borderWidth = 0.0f;
+            shape.blurBackground = true;
+            shape.blurRadius = 14.0f;
+            shape.brushSize = 52.0f;
+            break;
         case Tool::Select:
         case Tool::Pan:
             return;
@@ -834,6 +881,46 @@ void Application::FinishLineDrawing() {
     transformer_.EndDrag();
 }
 
+void Application::BeginBrushStroke(Vec2 startWorld) {
+    Shape shape;
+    shape.type = ShapeType::Brush;
+    shape.name = "Blur Brush " + std::to_string(document_.Shapes().size() + 1);
+    shape.position = startWorld;
+    shape.size = {shape.brushSize, shape.brushSize};
+    shape.fill = {1.0f, 1.0f, 1.0f, 0.0f};
+    shape.borderWidth = 0.0f;
+    shape.blurBackground = true;
+    shape.blurRadius = 14.0f;
+    shape.brushSize = 52.0f;
+    shape.brushPoints.push_back({0.0f, 0.0f});
+
+    PushHistory();
+    document_.AddShape(std::move(shape));
+    isDrawingBrush_ = true;
+    transformer_.EndDrag();
+}
+
+void Application::UpdateBrushStroke(Vec2 world) {
+    Shape *shape = document_.SelectedShape();
+    if (!shape || shape->type != ShapeType::Brush) {
+        isDrawingBrush_ = false;
+        return;
+    }
+
+    const Vec2 local = WorldToLocal(world, *shape);
+    if (!shape->brushPoints.empty() && Distance(shape->brushPoints.back(), local) < 2.0f / view_.zoom) {
+        return;
+    }
+
+    shape->brushPoints.push_back(local);
+}
+
+void Application::FinishBrushStroke() {
+    isDrawingBrush_ = false;
+    activeTool_ = Tool::Select;
+    transformer_.EndDrag();
+}
+
 void Application::RenderGridAndRulers(
     SkCanvas *canvas,
     float logicalWidth,
@@ -913,6 +1000,10 @@ void Application::RenderGridAndRulers(
 }
 
 void Application::RenderShape(SkCanvas *canvas, const Shape &shape) {
+    if (shape.type == ShapeType::Brush) {
+        return;
+    }
+
     canvas->save();
     canvas->translate(shape.position.x, shape.position.y);
     canvas->rotate(shape.rotation);
@@ -1003,6 +1094,78 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) {
     }
 
     canvas->restore();
+}
+
+void Application::RenderBlurOverlays(SkCanvas *canvas, float dpr) {
+    SkSurface *surface = canvas->getSurface();
+    if (!surface) {
+        return;
+    }
+
+    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
+    if (!snapshot) {
+        return;
+    }
+
+    auto addRectMask = [&](const Shape &shape, SkPath &path) {
+        const auto corners = GetShapeCorners(shape);
+        path.moveTo(DevicePoint(corners[0], view_, dpr));
+        for (int i = 1; i < 4; ++i) {
+            path.lineTo(DevicePoint(corners[i], view_, dpr));
+        }
+        path.close();
+    };
+
+    auto addBrushMask = [&](const Shape &shape, SkPath &path) {
+        if (shape.brushPoints.empty()) {
+            return;
+        }
+
+        SkPath stroke;
+        stroke.moveTo(DevicePoint(LocalToWorld(shape.brushPoints.front(), shape), view_, dpr));
+        if (shape.brushPoints.size() == 1) {
+            const SkPoint p = DevicePoint(LocalToWorld(shape.brushPoints.front(), shape), view_, dpr);
+            path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * view_.zoom * dpr);
+            return;
+        }
+        for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+            stroke.lineTo(DevicePoint(LocalToWorld(shape.brushPoints[i], shape), view_, dpr));
+        }
+
+        SkPaint strokePaint;
+        strokePaint.setAntiAlias(true);
+        strokePaint.setStyle(SkPaint::kStroke_Style);
+        strokePaint.setStrokeCap(SkPaint::kRound_Cap);
+        strokePaint.setStrokeJoin(SkPaint::kRound_Join);
+        strokePaint.setStrokeWidth(shape.brushSize * view_.zoom * dpr);
+        skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
+    };
+
+    for (const Shape &shape: document_.Shapes()) {
+        if (!shape.blurBackground) {
+            continue;
+        }
+
+        SkPath mask;
+        if (shape.type == ShapeType::Brush) {
+            addBrushMask(shape, mask);
+        } else {
+            addRectMask(shape, mask);
+        }
+        if (mask.isEmpty()) {
+            continue;
+        }
+
+        SkPaint blurPaint;
+        blurPaint.setAntiAlias(true);
+        const float sigma = std::max(0.0f, shape.blurRadius) * dpr;
+        blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
+
+        canvas->save();
+        canvas->clipPath(mask, true);
+        canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
+        canvas->restore();
+    }
 }
 
 bool Application::IsSnapDisabled() const {
@@ -1119,6 +1282,8 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
         RenderShape(canvas, shapes[i]);
     }
     canvas->restore();
+
+    RenderBlurOverlays(canvas, dpr);
 
     if (const Shape *selectedShape = document_.SelectedShape()) {
         canvas->save();

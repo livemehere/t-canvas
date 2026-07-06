@@ -21,7 +21,8 @@ public:
         Line,
         Arrow,
         Text,
-        Image
+        Image,
+        Brush
     };
 
     bool Init();
@@ -57,6 +58,7 @@ private:
     bool spacePanActive_ = false;
     bool isPanningCanvas_ = false;
     bool isDrawingLine_ = false;
+    bool isDrawingBrush_ = false;
     bool transformHistoryPushed_ = false;
     Tool drawingLineTool_ = Tool::Line;
     Vec2 lineStartWorld_;
@@ -78,6 +80,7 @@ private:
     void RenderTextEditor();
     void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight, bool drawGrid, bool drawRulers);
     void RenderShape(SkCanvas *canvas, const Shape &shape);
+    void RenderBlurOverlays(SkCanvas *canvas, float dpr);
     void AddShapeFromTool(Tool tool);
     void AddImageFromClipboard();
     void CopySelection();
@@ -93,6 +96,9 @@ private:
     void BeginLineDrawing(Tool tool, Vec2 startWorld);
     void UpdateLineDrawing(Vec2 endWorld);
     void FinishLineDrawing();
+    void BeginBrushStroke(Vec2 startWorld);
+    void UpdateBrushStroke(Vec2 world);
+    void FinishBrushStroke();
     void ApplySnapping(Shape &shape);
     bool IsSnapDisabled() const;
     Vec2 ViewCenterWorld() const;

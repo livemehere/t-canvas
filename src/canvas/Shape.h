@@ -2,6 +2,7 @@
 
 #include <array>
 #include <string>
+#include <vector>
 
 #include <skia/core/SkImage.h>
 
@@ -20,7 +21,8 @@ enum class ShapeType {
     Line,
     Arrow,
     Text,
-    Image
+    Image,
+    Brush
 };
 
 struct Shape {
@@ -33,8 +35,12 @@ struct Shape {
     float borderWidth = 2.0f;
     Color fill{0.31f, 0.70f, 1.0f, 1.0f};
     Color border{1.0f, 1.0f, 1.0f, 1.0f};
+    bool blurBackground = false;
+    float blurRadius = 12.0f;
+    float brushSize = 44.0f;
     std::string text = "Text";
     std::string imagePath;
+    std::vector<Vec2> brushPoints;
     sk_sp<SkImage> image;
 };
 

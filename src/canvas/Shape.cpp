@@ -39,6 +39,23 @@ Vec2 Midpoint(Vec2 a, Vec2 b) {
 }
 
 bool PointInShape(Vec2 world, const Shape &shape) {
+    if (shape.type == ShapeType::Brush) {
+        if (shape.brushPoints.empty()) {
+            return false;
+        }
+        const Vec2 local = WorldToLocal(world, shape);
+        const float threshold = std::max(6.0f, shape.brushSize * 0.5f);
+        if (shape.brushPoints.size() == 1) {
+            return Distance(local, shape.brushPoints.front()) <= threshold;
+        }
+        for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+            if (DistanceToSegment(local, shape.brushPoints[i - 1], shape.brushPoints[i]) <= threshold) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     if (shape.type == ShapeType::Line || shape.type == ShapeType::Arrow) {
         const Vec2 start = LocalToWorld({-shape.size.x * 0.5f, 0.0f}, shape);
         const Vec2 end = LocalToWorld({shape.size.x * 0.5f, 0.0f}, shape);
