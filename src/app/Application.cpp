@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -38,6 +41,8 @@
 namespace {
 constexpr float kLeftPanelWidth = 240.0f;
 constexpr float kRightPanelWidth = 300.0f;
+constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
+constexpr Color kTransparentRed{1.0f, 0.22f, 0.20f, 0.0f};
 
 void GlfwErrorCallback(int error, const char *description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
@@ -119,6 +124,154 @@ bool IsBoxTool(Application::Tool tool) {
     return tool == Application::Tool::Rect || tool == Application::Tool::Circle;
 }
 
+int ShapePreferenceIndex(ShapeType type) {
+    switch (type) {
+        case ShapeType::Rect:
+            return 0;
+        case ShapeType::Circle:
+            return 1;
+        case ShapeType::Line:
+            return 2;
+        case ShapeType::Arrow:
+            return 3;
+        case ShapeType::Text:
+            return 4;
+        case ShapeType::Image:
+            return 5;
+        case ShapeType::Brush:
+            return 6;
+    }
+    return 0;
+}
+
+const char *ShapePreferenceKey(ShapeType type) {
+    switch (type) {
+        case ShapeType::Rect:
+            return "rect";
+        case ShapeType::Circle:
+            return "circle";
+        case ShapeType::Line:
+            return "line";
+        case ShapeType::Arrow:
+            return "arrow";
+        case ShapeType::Text:
+            return "text";
+        case ShapeType::Image:
+            return "image";
+        case ShapeType::Brush:
+            return "brush";
+    }
+    return "rect";
+}
+
+const char *ShapePreferenceLabel(ShapeType type) {
+    switch (type) {
+        case ShapeType::Rect:
+            return "Rect";
+        case ShapeType::Circle:
+            return "Circle";
+        case ShapeType::Line:
+            return "Line";
+        case ShapeType::Arrow:
+            return "Arrow";
+        case ShapeType::Text:
+            return "Text";
+        case ShapeType::Image:
+            return "Image";
+        case ShapeType::Brush:
+            return "Brush";
+    }
+    return "Rect";
+}
+
+void DrawPreferencePreview(ShapeType type, const Application::ShapePreferences &prefs, ImVec2 size) {
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 end{pos.x + size.x, pos.y + size.y};
+    const ImU32 panel = ImGui::GetColorU32(ImVec4(0.075f, 0.080f, 0.090f, 1.0f));
+    const ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(prefs.fill.r, prefs.fill.g, prefs.fill.b, prefs.fill.a));
+    const ImU32 stroke = ImGui::ColorConvertFloat4ToU32(ImVec4(prefs.border.r, prefs.border.g, prefs.border.b, prefs.border.a));
+    const float strokeWidth = std::max(1.0f, prefs.borderWidth);
+    const ImVec2 center{pos.x + size.x * 0.5f, pos.y + size.y * 0.5f};
+
+    drawList->AddRectFilled(pos, end, panel, 6.0f);
+    drawList->AddRect(pos, end, ImGui::GetColorU32(ImVec4(0.18f, 0.20f, 0.23f, 1.0f)), 6.0f);
+
+    if (type == ShapeType::Circle) {
+        const float radius = std::min(size.x, size.y) * 0.28f;
+        drawList->AddCircleFilled(center, radius, fill, 48);
+        drawList->AddCircle(center, radius, stroke, 48, strokeWidth);
+    } else if (type == ShapeType::Line || type == ShapeType::Arrow) {
+        const ImVec2 a{pos.x + size.x * 0.22f, center.y};
+        const ImVec2 b{pos.x + size.x * 0.78f, center.y};
+        drawList->AddLine(a, b, stroke, strokeWidth);
+        if (type == ShapeType::Arrow) {
+            drawList->AddTriangleFilled(
+                b,
+                ImVec2{b.x - 17.0f, b.y - 6.0f},
+                ImVec2{b.x - 17.0f, b.y + 6.0f},
+                stroke
+            );
+        }
+    } else if (type == ShapeType::Text) {
+        drawList->AddText(ImVec2{pos.x + 18.0f, center.y - 9.0f}, stroke, "Text");
+    } else if (type == ShapeType::Brush) {
+        const float radius = std::min(size.x, size.y) * 0.22f * (prefs.brushSize / 52.0f);
+        drawList->AddCircleFilled(center, Clamp(radius, 8.0f, 34.0f), fill, 48);
+        drawList->AddCircle(center, Clamp(radius, 8.0f, 34.0f), stroke, 48, std::max(1.0f, strokeWidth));
+    } else {
+        const ImVec2 rectMin{pos.x + size.x * 0.22f, pos.y + size.y * 0.25f};
+        const ImVec2 rectMax{pos.x + size.x * 0.78f, pos.y + size.y * 0.75f};
+        const float radius = type == ShapeType::Rect || type == ShapeType::Image ? std::min(prefs.cornerRadius * 0.25f, 18.0f) : 0.0f;
+        drawList->AddRectFilled(rectMin, rectMax, fill, radius);
+        drawList->AddRect(rectMin, rectMax, stroke, radius, 0, strokeWidth);
+        if (type == ShapeType::Image) {
+            drawList->AddLine(
+                ImVec2{rectMin.x + 12.0f, rectMax.y - 14.0f},
+                ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
+                stroke,
+                1.0f
+            );
+            drawList->AddLine(
+                ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
+                ImVec2{rectMax.x - 12.0f, rectMax.y - 14.0f},
+                stroke,
+                1.0f
+            );
+        }
+    }
+
+    ImGui::Dummy(size);
+}
+
+bool ParseColor(const std::string &value, Color &color) {
+    std::stringstream stream(value);
+    std::string part;
+    float values[4] = {};
+    for (int i = 0; i < 4; ++i) {
+        if (!std::getline(stream, part, ',')) {
+            return false;
+        }
+        values[i] = std::stof(part);
+    }
+    color = {values[0], values[1], values[2], values[3]};
+    return true;
+}
+
+std::string FormatColor(Color color) {
+    char buffer[128] = {};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%.4f,%.4f,%.4f,%.4f",
+        color.r,
+        color.g,
+        color.b,
+        color.a
+    );
+    return buffer;
+}
+
 void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
     const Vec2 delta = end - start;
     const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
@@ -145,6 +298,9 @@ SkPoint ExportPoint(Vec2 world, float left, float top, float scaleX, float scale
 } // namespace
 
 bool Application::Init() {
+    ResetDefaultPreferences();
+    LoadPreferences();
+
     glfwSetErrorCallback(GlfwErrorCallback);
 
     if (!glfwInit()) {
@@ -624,7 +780,7 @@ void Application::RenderPanels() {
 
 void Application::RenderToolbar() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float toolbarWidth = 842.0f;
+    constexpr float toolbarWidth = 924.0f;
     constexpr float toolbarHeight = 52.0f;
     const ImVec2 pos{
         viewport->WorkPos.x + (viewport->WorkSize.x - toolbarWidth) * 0.5f,
@@ -675,6 +831,47 @@ void Application::RenderToolbar() {
     if (ImGui::Button("Export", ImVec2(74.0f, 32.0f))) {
         OpenExportDialog();
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Settings", ImVec2(76.0f, 32.0f))) {
+        showPreferencesDialog_ = true;
+    }
+
+    ImGui::End();
+}
+
+void Application::RenderBrushControls() {
+    if (activeTool_ != Tool::Brush) {
+        return;
+    }
+
+    ImGuiViewport *viewport = ImGui::GetMainViewport();
+    constexpr float panelWidth = 272.0f;
+    constexpr float panelHeight = 78.0f;
+    const ImVec2 pos{
+        viewport->WorkPos.x + (viewport->WorkSize.x - panelWidth) * 0.5f,
+        viewport->WorkPos.y + viewport->WorkSize.y - 52.0f - panelHeight - 28.0f
+    };
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight));
+    ImGui::Begin("BrushControls", nullptr,
+                 ImGuiWindowFlags_NoTitleBar |
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoScrollbar |
+                 ImGuiWindowFlags_NoSavedSettings |
+                 ImGuiWindowFlags_NoCollapse);
+
+    ImGui::TextUnformatted("Brush");
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(panelWidth - 76.0f);
+    ImGui::SetNextItemWidth(56.0f);
+    ImGui::InputFloat("##BrushSizeInput", &brushToolSize_, 1.0f, 8.0f, "%.0f");
+    brushToolSize_ = Clamp(brushToolSize_, 4.0f, 240.0f);
+
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::SliderFloat("##BrushSizeSlider", &brushToolSize_, 4.0f, 240.0f, "Size %.0f");
+    brushToolSize_ = Clamp(brushToolSize_, 4.0f, 240.0f);
 
     ImGui::End();
 }
@@ -796,6 +993,208 @@ void Application::RenderExportDialog() {
     ImGui::End();
 }
 
+void Application::RenderPreferencesDialog() {
+    if (!showPreferencesDialog_) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 540.0f), ImGuiCond_Appearing);
+    ImGui::Begin("Preferences", &showPreferencesDialog_,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+
+    ImGui::TextUnformatted("Default Shape Styles");
+    ImGui::Separator();
+
+    bool changed = false;
+    constexpr ShapeType types[] = {
+        ShapeType::Rect,
+        ShapeType::Circle,
+        ShapeType::Line,
+        ShapeType::Arrow,
+        ShapeType::Text,
+        ShapeType::Image,
+        ShapeType::Brush
+    };
+
+    for (ShapeType type: types) {
+        ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
+        ImGui::PushID(ShapePreferenceKey(type));
+        if (ImGui::CollapsingHeader(ShapePreferenceLabel(type), ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::BeginGroup();
+            changed = ImGui::ColorEdit4("Fill", &prefs.fill.r) || changed;
+            changed = ImGui::ColorEdit4("Stroke", &prefs.border.r) || changed;
+            changed = ImGui::DragFloat("Stroke Width", &prefs.borderWidth, 0.25f, 0.0f, 100.0f) || changed;
+            if (type == ShapeType::Rect || type == ShapeType::Image) {
+                changed = ImGui::DragFloat("Corner Radius", &prefs.cornerRadius, 0.5f, 0.0f, 1000.0f) || changed;
+            }
+            if (type == ShapeType::Brush) {
+                changed = ImGui::DragFloat("Brush Size", &prefs.brushSize, 0.5f, 4.0f, 240.0f) || changed;
+            }
+            changed = ImGui::Checkbox("Background Blur", &prefs.blurBackground) || changed;
+            changed = ImGui::DragFloat("Blur Radius", &prefs.blurRadius, 0.25f, 0.0f, 80.0f) || changed;
+
+            prefs.borderWidth = Clamp(prefs.borderWidth, 0.0f, 100.0f);
+            prefs.cornerRadius = Clamp(prefs.cornerRadius, 0.0f, 1000.0f);
+            prefs.blurRadius = Clamp(prefs.blurRadius, 0.0f, 80.0f);
+            prefs.brushSize = Clamp(prefs.brushSize, 4.0f, 240.0f);
+            ImGui::EndGroup();
+
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted("Preview");
+            DrawPreferencePreview(type, prefs, ImVec2(116.0f, 78.0f));
+            ImGui::EndGroup();
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Reset Defaults", ImVec2(132.0f, 30.0f))) {
+        ResetDefaultPreferences();
+        SavePreferences();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", PreferencesPath().c_str());
+
+    if (changed) {
+        brushToolSize_ = shapePreferences_[ShapePreferenceIndex(ShapeType::Brush)].brushSize;
+        SavePreferences();
+    }
+
+    ImGui::End();
+}
+
+std::string Application::PreferencesPath() const {
+    const char *home = std::getenv("HOME");
+    const std::filesystem::path base = home && *home
+        ? std::filesystem::path(home) / "Library" / "Application Support" / "TCanvas"
+        : std::filesystem::temp_directory_path() / "TCanvas";
+    return (base / "preferences.ini").string();
+}
+
+void Application::ResetDefaultPreferences() {
+    ShapePreferences rect;
+    rect.fill = kTransparentRed;
+    rect.border = kAccentRed;
+    rect.borderWidth = 3.0f;
+    rect.cornerRadius = 0.0f;
+
+    ShapePreferences circle = rect;
+    circle.cornerRadius = 1000.0f;
+
+    ShapePreferences line = rect;
+    line.borderWidth = 4.0f;
+
+    ShapePreferences arrow = line;
+
+    ShapePreferences text = rect;
+    text.fill = kAccentRed;
+    text.border = kTransparentRed;
+    text.borderWidth = 0.0f;
+
+    ShapePreferences image = rect;
+    image.fill = {1.0f, 1.0f, 1.0f, 1.0f};
+    image.borderWidth = 3.0f;
+
+    ShapePreferences brush = rect;
+    brush.borderWidth = 0.0f;
+    brush.blurBackground = true;
+    brush.blurRadius = 14.0f;
+    brush.brushSize = 52.0f;
+
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Rect)] = rect;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Circle)] = circle;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Line)] = line;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Arrow)] = arrow;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Text)] = text;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Image)] = image;
+    shapePreferences_[ShapePreferenceIndex(ShapeType::Brush)] = brush;
+    brushToolSize_ = brush.brushSize;
+}
+
+void Application::LoadPreferences() {
+    std::ifstream file(PreferencesPath());
+    if (!file) {
+        return;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        const size_t equals = line.find('=');
+        const size_t dot = line.find('.');
+        if (equals == std::string::npos || dot == std::string::npos || dot > equals) {
+            continue;
+        }
+
+        const std::string section = line.substr(0, dot);
+        const std::string key = line.substr(dot + 1, equals - dot - 1);
+        const std::string value = line.substr(equals + 1);
+
+        ShapeType type = ShapeType::Rect;
+        bool matched = false;
+        for (ShapeType candidate: {ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
+                                  ShapeType::Text, ShapeType::Image, ShapeType::Brush}) {
+            if (section == ShapePreferenceKey(candidate)) {
+                type = candidate;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            continue;
+        }
+
+        ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
+        try {
+            if (key == "fill") {
+                ParseColor(value, prefs.fill);
+            } else if (key == "stroke") {
+                ParseColor(value, prefs.border);
+            } else if (key == "stroke_width") {
+                prefs.borderWidth = std::stof(value);
+            } else if (key == "radius") {
+                prefs.cornerRadius = std::stof(value);
+            } else if (key == "blur") {
+                prefs.blurBackground = value == "1";
+            } else if (key == "blur_radius") {
+                prefs.blurRadius = std::stof(value);
+            } else if (key == "brush_size") {
+                prefs.brushSize = std::stof(value);
+            }
+        } catch (...) {
+        }
+    }
+
+    brushToolSize_ = shapePreferences_[ShapePreferenceIndex(ShapeType::Brush)].brushSize;
+}
+
+void Application::SavePreferences() const {
+    const std::filesystem::path path = PreferencesPath();
+    std::filesystem::create_directories(path.parent_path());
+
+    std::ofstream file(path);
+    if (!file) {
+        return;
+    }
+
+    file << "# TCanvas preferences\n";
+    for (ShapeType type: {ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
+                         ShapeType::Text, ShapeType::Image, ShapeType::Brush}) {
+        const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
+        const char *key = ShapePreferenceKey(type);
+        file << key << ".fill=" << FormatColor(prefs.fill) << "\n";
+        file << key << ".stroke=" << FormatColor(prefs.border) << "\n";
+        file << key << ".stroke_width=" << prefs.borderWidth << "\n";
+        file << key << ".radius=" << prefs.cornerRadius << "\n";
+        file << key << ".blur=" << (prefs.blurBackground ? 1 : 0) << "\n";
+        file << key << ".blur_radius=" << prefs.blurRadius << "\n";
+        file << key << ".brush_size=" << prefs.brushSize << "\n";
+    }
+}
+
 Vec2 Application::ViewCenterWorld() const {
     int windowWidth = 0;
     int windowHeight = 0;
@@ -804,6 +1203,19 @@ Vec2 Application::ViewCenterWorld() const {
         static_cast<float>(windowWidth) * 0.5f,
         static_cast<float>(windowHeight) * 0.5f
     });
+}
+
+void Application::ApplyPreferences(Shape &shape) const {
+    const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(shape.type)];
+    shape.fill = prefs.fill;
+    shape.border = prefs.border;
+    shape.borderWidth = prefs.borderWidth;
+    shape.cornerRadius = prefs.cornerRadius;
+    shape.blurBackground = prefs.blurBackground;
+    shape.blurRadius = prefs.blurRadius;
+    if (shape.type == ShapeType::Brush) {
+        shape.brushSize = prefs.brushSize;
+    }
 }
 
 void Application::AddShapeFromTool(Tool tool) {
@@ -864,15 +1276,15 @@ void Application::AddShapeFromTool(Tool tool) {
         case Tool::Brush:
             shape.type = ShapeType::Brush;
             shape.name = "Blur Brush " + std::to_string(document_.Shapes().size() + 1);
-            shape.fill = {1.0f, 1.0f, 1.0f, 0.0f};
-            shape.borderWidth = 0.0f;
-            shape.blurBackground = true;
-            shape.blurRadius = 14.0f;
-            shape.brushSize = 52.0f;
             break;
         case Tool::Select:
         case Tool::Pan:
             return;
+    }
+
+    ApplyPreferences(shape);
+    if (shape.type == ShapeType::Brush) {
+        shape.size = {shape.brushSize, shape.brushSize};
     }
 
     PushHistory();
@@ -892,8 +1304,7 @@ void Application::AddImageFromClipboard() {
     shape.image = image;
     shape.position = ViewCenterWorld();
     shape.size = {static_cast<float>(image->width()), static_cast<float>(image->height())};
-    shape.fill = {1.0f, 1.0f, 1.0f, 1.0f};
-    shape.borderWidth = 0.0f;
+    ApplyPreferences(shape);
     PushHistory();
     document_.AddShape(std::move(shape));
 }
@@ -1335,7 +1746,7 @@ void Application::BeginLineDrawing(Tool tool, Vec2 startWorld) {
     shape.type = tool == Tool::Arrow ? ShapeType::Arrow : ShapeType::Line;
     shape.name = std::string(tool == Tool::Arrow ? "Arrow " : "Line ") +
         std::to_string(document_.Shapes().size() + 1);
-    shape.borderWidth = 3.0f;
+    ApplyPreferences(shape);
     lineStartWorld_ = startWorld;
     drawingLineTool_ = tool;
     SetLineGeometry(shape, startWorld, startWorld);
@@ -1369,6 +1780,7 @@ void Application::BeginBoxDrawing(Tool tool, Vec2 startWorld) {
     if (tool == Tool::Circle) {
         shape.cornerRadius = 1000.0f;
     }
+    ApplyPreferences(shape);
 
     boxStartWorld_ = startWorld;
     drawingBoxTool_ = tool;
@@ -1407,12 +1819,10 @@ void Application::BeginBrushStroke(Vec2 startWorld) {
     shape.type = ShapeType::Brush;
     shape.name = "Blur Brush " + std::to_string(document_.Shapes().size() + 1);
     shape.position = startWorld;
+    shape.brushSize = brushToolSize_;
+    ApplyPreferences(shape);
+    shape.brushSize = brushToolSize_;
     shape.size = {shape.brushSize, shape.brushSize};
-    shape.fill = {1.0f, 1.0f, 1.0f, 0.0f};
-    shape.borderWidth = 0.0f;
-    shape.blurBackground = true;
-    shape.blurRadius = 14.0f;
-    shape.brushSize = 52.0f;
     shape.brushPoints.push_back({0.0f, 0.0f});
 
     PushHistory();
@@ -1714,6 +2124,29 @@ void Application::RenderSelectionArea(SkCanvas *canvas, float dpr) {
     canvas->drawRect(rect, stroke);
 }
 
+void Application::RenderBrushPreview(SkCanvas *canvas, float dpr) {
+    if (activeTool_ != Tool::Brush) {
+        return;
+    }
+
+    const ImGuiIO &io = ImGui::GetIO();
+    const float radius = std::max(2.0f, brushToolSize_ * view_.zoom * dpr * 0.5f);
+    const SkPoint center = SkPoint::Make(io.MousePos.x * dpr, io.MousePos.y * dpr);
+
+    SkPaint fill;
+    fill.setAntiAlias(true);
+    fill.setStyle(SkPaint::kFill_Style);
+    fill.setColor(SkColorSetARGB(26, 245, 248, 255));
+    canvas->drawCircle(center, radius, fill);
+
+    SkPaint stroke;
+    stroke.setAntiAlias(true);
+    stroke.setStyle(SkPaint::kStroke_Style);
+    stroke.setStrokeWidth(1.0f * dpr);
+    stroke.setColor(SkColorSetARGB(165, 235, 240, 248));
+    canvas->drawCircle(center, radius, stroke);
+}
+
 void Application::RenderGroupTransformer(SkCanvas *canvas) {
     if (document_.SelectedShapeIndices().size() <= 1) {
         return;
@@ -1908,11 +2341,14 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
     canvas->restore();
 
     RenderSelectionArea(canvas, dpr);
+    RenderBrushPreview(canvas, dpr);
 
     skia_.EndFrame();
 
     RenderPanels();
     RenderToolbar();
+    RenderBrushControls();
+    RenderPreferencesDialog();
     RenderTextEditor();
     RenderExportDialog();
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 
 #include <GLFW/glfw3.h>
 #include <vector>
@@ -28,6 +29,16 @@ public:
     bool Init();
     void Run();
     void Shutdown();
+
+    struct ShapePreferences {
+        Color fill;
+        Color border;
+        float borderWidth = 3.0f;
+        float cornerRadius = 0.0f;
+        bool blurBackground = false;
+        float blurRadius = 12.0f;
+        float brushSize = 52.0f;
+    };
 
 private:
     enum class SnapAxis {
@@ -82,6 +93,9 @@ private:
     bool hasCopiedShape_ = false;
     int copiedClipboardChangeCount_ = -1;
     std::vector<Shape> copiedShapes_;
+    float brushToolSize_ = 52.0f;
+    bool showPreferencesDialog_ = false;
+    std::array<ShapePreferences, 7> shapePreferences_;
     bool showExportDialog_ = false;
     int exportWidth_ = 0;
     int exportHeight_ = 0;
@@ -97,14 +111,22 @@ private:
     void Render(float dpr, int framebufferWidth, int framebufferHeight);
     void RenderPanels();
     void RenderToolbar();
+    void RenderBrushControls();
+    void RenderPreferencesDialog();
     void RenderTextEditor();
     void RenderExportDialog();
     void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight, bool drawGrid, bool drawRulers);
     void RenderShape(SkCanvas *canvas, const Shape &shape) const;
     void RenderBlurOverlays(SkCanvas *canvas, float dpr);
     void RenderSelectionArea(SkCanvas *canvas, float dpr);
+    void RenderBrushPreview(SkCanvas *canvas, float dpr);
     void RenderGroupTransformer(SkCanvas *canvas);
     void AddShapeFromTool(Tool tool);
+    void ApplyPreferences(Shape &shape) const;
+    void ResetDefaultPreferences();
+    void LoadPreferences();
+    void SavePreferences() const;
+    std::string PreferencesPath() const;
     void AddImageFromClipboard();
     void CopySelection();
     void PasteSelectionOrClipboardImage();

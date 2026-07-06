@@ -32,9 +32,9 @@ struct Shape {
     Vec2 size{200.0f, 100.0f};
     float rotation = 0.0f;
     float cornerRadius = 0.0f;
-    float borderWidth = 2.0f;
-    Color fill{0.31f, 0.70f, 1.0f, 1.0f};
-    Color border{1.0f, 1.0f, 1.0f, 1.0f};
+    float borderWidth = 3.0f;
+    Color fill{1.0f, 0.22f, 0.20f, 0.0f};
+    Color border{1.0f, 0.22f, 0.20f, 1.0f};
     bool blurBackground = false;
     float blurRadius = 12.0f;
     float brushSize = 44.0f;
