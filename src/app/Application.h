@@ -145,7 +145,6 @@ private:
 
     void RenderShape(SkCanvas *canvas, const Shape &shape) const;
 
-    void RenderBlurOverlays(SkCanvas *canvas, float dpr);
 
     void RenderSelectionArea(SkCanvas *canvas, float dpr);
 

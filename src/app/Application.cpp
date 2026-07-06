@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -377,6 +378,83 @@ SkPoint DevicePoint(Vec2 world, const CanvasView &view, float dpr) {
 
 SkPoint ExportPoint(Vec2 world, float left, float top, float scaleX, float scaleY) {
     return SkPoint::Make((world.x - left) * scaleX, (world.y - top) * scaleY);
+}
+
+void AddRectMask(const Shape &shape, SkPath &path, const std::function<SkPoint(Vec2)> &mapPoint) {
+    const auto corners = GetShapeCorners(shape);
+    path.moveTo(mapPoint(corners[0]));
+    for (int i = 1; i < 4; ++i) {
+        path.lineTo(mapPoint(corners[i]));
+    }
+    path.close();
+}
+
+void AddBrushMask(
+    const Shape &shape,
+    SkPath &path,
+    const std::function<SkPoint(Vec2)> &mapPoint,
+    float scale
+) {
+    if (shape.brushPoints.empty()) {
+        return;
+    }
+
+    SkPath stroke;
+    SkPoint p = mapPoint(LocalToWorld(shape.brushPoints.front(), shape));
+    stroke.moveTo(p);
+    if (shape.brushPoints.size() == 1) {
+        path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * scale);
+        return;
+    }
+
+    for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+        stroke.lineTo(mapPoint(LocalToWorld(shape.brushPoints[i], shape)));
+    }
+
+    SkPaint strokePaint;
+    strokePaint.setAntiAlias(true);
+    strokePaint.setStyle(SkPaint::kStroke_Style);
+    strokePaint.setStrokeCap(SkPaint::kRound_Cap);
+    strokePaint.setStrokeJoin(SkPaint::kRound_Join);
+    strokePaint.setStrokeWidth(shape.brushSize * scale);
+    skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
+}
+
+void ApplyBlurShape(
+    SkCanvas *canvas,
+    const Shape &shape,
+    const std::function<SkPoint(Vec2)> &mapPoint,
+    float scale
+) {
+    SkSurface *surface = canvas->getSurface();
+    if (!surface || !shape.visible || !shape.blurBackground) {
+        return;
+    }
+
+    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
+    if (!snapshot) {
+        return;
+    }
+
+    SkPath mask;
+    if (shape.type == ShapeType::Brush) {
+        AddBrushMask(shape, mask, mapPoint, scale);
+    } else {
+        AddRectMask(shape, mask, mapPoint);
+    }
+    if (mask.isEmpty()) {
+        return;
+    }
+
+    SkPaint blurPaint;
+    blurPaint.setAntiAlias(true);
+    const float sigma = std::max(0.0f, shape.blurRadius) * scale;
+    blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
+
+    canvas->save();
+    canvas->clipPath(mask, true);
+    canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
+    canvas->restore();
 }
 } // namespace
 
@@ -1735,76 +1813,21 @@ sk_sp<SkData> Application::EncodeSelectionPng(int width, int height) const {
         if (!shapes[i].visible) {
             continue;
         }
+        if (shapes[i].blurBackground) {
+            canvas->restore();
+            ApplyBlurShape(
+                canvas,
+                shapes[i],
+                [&](Vec2 world) { return ExportPoint(world, left, top, scaleX, scaleY); },
+                (scaleX + scaleY) * 0.5f
+            );
+            canvas->save();
+            canvas->scale(scaleX, scaleY);
+            canvas->translate(-left, -top);
+        }
         RenderShape(canvas, shapes[i]);
     }
     canvas->restore();
-
-    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
-    if (snapshot) {
-        auto addRectMask = [&](const Shape &shape, SkPath &path) {
-            const auto corners = GetShapeCorners(shape);
-            SkPoint p = ExportPoint(corners[0], left, top, scaleX, scaleY);
-            path.moveTo(p);
-            for (int i = 1; i < 4; ++i) {
-                p = ExportPoint(corners[i], left, top, scaleX, scaleY);
-                path.lineTo(p);
-            }
-            path.close();
-        };
-
-        auto addBrushMask = [&](const Shape &shape, SkPath &path) {
-            if (shape.brushPoints.empty()) {
-                return;
-            }
-
-            SkPath stroke;
-            SkPoint p = ExportPoint(LocalToWorld(shape.brushPoints.front(), shape), left, top, scaleX, scaleY);
-            stroke.moveTo(p);
-            if (shape.brushPoints.size() == 1) {
-                path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * (scaleX + scaleY) * 0.5f);
-                return;
-            }
-
-            for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
-                p = ExportPoint(LocalToWorld(shape.brushPoints[i], shape), left, top, scaleX, scaleY);
-                stroke.lineTo(p);
-            }
-
-            SkPaint strokePaint;
-            strokePaint.setAntiAlias(true);
-            strokePaint.setStyle(SkPaint::kStroke_Style);
-            strokePaint.setStrokeCap(SkPaint::kRound_Cap);
-            strokePaint.setStrokeJoin(SkPaint::kRound_Join);
-            strokePaint.setStrokeWidth(shape.brushSize * (scaleX + scaleY) * 0.5f);
-            skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
-        };
-
-        for (const Shape &shape: shapes) {
-            if (!shape.visible || !shape.blurBackground) {
-                continue;
-            }
-
-            SkPath mask;
-            if (shape.type == ShapeType::Brush) {
-                addBrushMask(shape, mask);
-            } else {
-                addRectMask(shape, mask);
-            }
-            if (mask.isEmpty()) {
-                continue;
-            }
-
-            SkPaint blurPaint;
-            blurPaint.setAntiAlias(true);
-            const float sigma = std::max(0.0f, shape.blurRadius) * (scaleX + scaleY) * 0.5f;
-            blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
-
-            canvas->save();
-            canvas->clipPath(mask, true);
-            canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
-            canvas->restore();
-        }
-    }
 
     SkPixmap pixmap;
     if (!surface->peekPixels(&pixmap)) {
@@ -2365,78 +2388,6 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
     canvas->restore();
 }
 
-void Application::RenderBlurOverlays(SkCanvas *canvas, float dpr) {
-    SkSurface *surface = canvas->getSurface();
-    if (!surface) {
-        return;
-    }
-
-    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
-    if (!snapshot) {
-        return;
-    }
-
-    auto addRectMask = [&](const Shape &shape, SkPath &path) {
-        const auto corners = GetShapeCorners(shape);
-        path.moveTo(DevicePoint(corners[0], view_, dpr));
-        for (int i = 1; i < 4; ++i) {
-            path.lineTo(DevicePoint(corners[i], view_, dpr));
-        }
-        path.close();
-    };
-
-    auto addBrushMask = [&](const Shape &shape, SkPath &path) {
-        if (shape.brushPoints.empty()) {
-            return;
-        }
-
-        SkPath stroke;
-        stroke.moveTo(DevicePoint(LocalToWorld(shape.brushPoints.front(), shape), view_, dpr));
-        if (shape.brushPoints.size() == 1) {
-            const SkPoint p = DevicePoint(LocalToWorld(shape.brushPoints.front(), shape), view_, dpr);
-            path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * view_.zoom * dpr);
-            return;
-        }
-        for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
-            stroke.lineTo(DevicePoint(LocalToWorld(shape.brushPoints[i], shape), view_, dpr));
-        }
-
-        SkPaint strokePaint;
-        strokePaint.setAntiAlias(true);
-        strokePaint.setStyle(SkPaint::kStroke_Style);
-        strokePaint.setStrokeCap(SkPaint::kRound_Cap);
-        strokePaint.setStrokeJoin(SkPaint::kRound_Join);
-        strokePaint.setStrokeWidth(shape.brushSize * view_.zoom * dpr);
-        skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
-    };
-
-    for (const Shape &shape: document_.Shapes()) {
-        if (!shape.visible || !shape.blurBackground) {
-            continue;
-        }
-
-        SkPath mask;
-        if (shape.type == ShapeType::Brush) {
-            addBrushMask(shape, mask);
-        } else {
-            addRectMask(shape, mask);
-        }
-        if (mask.isEmpty()) {
-            continue;
-        }
-
-        SkPaint blurPaint;
-        blurPaint.setAntiAlias(true);
-        const float sigma = std::max(0.0f, shape.blurRadius) * dpr;
-        blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
-
-        canvas->save();
-        canvas->clipPath(mask, true);
-        canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
-        canvas->restore();
-    }
-}
-
 void Application::RenderSelectionArea(SkCanvas *canvas, float dpr) {
     if (!isSelectingArea_) {
         return;
@@ -2681,11 +2632,22 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
         if (!shapes[i].visible) {
             continue;
         }
+        if (shapes[i].blurBackground) {
+            canvas->restore();
+            ApplyBlurShape(
+                canvas,
+                shapes[i],
+                [&](Vec2 world) { return DevicePoint(world, view_, dpr); },
+                view_.zoom * dpr
+            );
+            canvas->save();
+            canvas->scale(dpr, dpr);
+            canvas->translate(view_.pan.x, view_.pan.y);
+            canvas->scale(view_.zoom, view_.zoom);
+        }
         RenderShape(canvas, shapes[i]);
     }
     canvas->restore();
-
-    RenderBlurOverlays(canvas, dpr);
 
     if (document_.SelectedShapeIndices().size() > 1) {
         canvas->save();
