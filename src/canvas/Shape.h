@@ -3,6 +3,8 @@
 #include <array>
 #include <string>
 
+#include <skia/core/SkImage.h>
+
 #include "Math2D.h"
 
 struct Color {
@@ -12,7 +14,17 @@ struct Color {
     float a = 1.0f;
 };
 
+enum class ShapeType {
+    Rect,
+    Circle,
+    Line,
+    Arrow,
+    Text,
+    Image
+};
+
 struct Shape {
+    ShapeType type = ShapeType::Rect;
     std::string name = "Rectangle";
     Vec2 position{180.0f, 130.0f};
     Vec2 size{200.0f, 100.0f};
@@ -21,6 +33,9 @@ struct Shape {
     float borderWidth = 2.0f;
     Color fill{0.31f, 0.70f, 1.0f, 1.0f};
     Color border{1.0f, 1.0f, 1.0f, 1.0f};
+    std::string text = "Text";
+    std::string imagePath;
+    sk_sp<SkImage> image;
 };
 
 Vec2 LocalToWorld(Vec2 point, const Shape &shape);

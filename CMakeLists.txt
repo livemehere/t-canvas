@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.2)
 
-project(TCanvas LANGUAGES CXX)
+project(TCanvas LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ add_executable(app
         src/canvas/CanvasView.cpp
         src/canvas/Shape.cpp
         src/canvas/Transformer.cpp
+        src/platform/MacFileDialog.mm
         src/render/ImGuiLayer.cpp
         src/render/SkiaRenderer.cpp
 )
@@ -26,4 +27,6 @@ target_link_libraries(app PRIVATE
         glfw
         imgui::imgui
         unofficial::skia::skia
+        "-framework AppKit"
+        "-framework UniformTypeIdentifiers"
 )
