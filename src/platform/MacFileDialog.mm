@@ -3,6 +3,8 @@
 #import <AppKit/AppKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+#include <cmath>
+
 #include <skia/core/SkData.h>
 
 std::string OpenImageFileDialog() {
@@ -36,18 +38,36 @@ std::string OpenImageFileDialog() {
 sk_sp<SkData> ReadClipboardImageData() {
     @autoreleasepool {
         NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-        NSData *data = [pasteboard dataForType:NSPasteboardTypePNG];
-        if (data) {
-            return SkData::MakeWithCopy(data.bytes, data.length);
+
+        NSArray<NSPasteboardType> *encodedTypes = @[
+            NSPasteboardTypePNG,
+            NSPasteboardTypeTIFF,
+            @"public.png",
+            @"public.tiff",
+            @"com.apple.tiff"
+        ];
+        NSPasteboardType availableType = [pasteboard availableTypeFromArray:encodedTypes];
+        if (availableType) {
+            NSData *encoded = [pasteboard dataForType:availableType];
+            if (encoded && [availableType isEqualToString:NSPasteboardTypePNG]) {
+                return SkData::MakeWithCopy(encoded.bytes, encoded.length);
+            }
+            if (encoded) {
+                NSImage *encodedImage = [[NSImage alloc] initWithData:encoded];
+                if (encodedImage) {
+                    NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData:encodedImage.TIFFRepresentation];
+                    NSData *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                    if (png) {
+                        return SkData::MakeWithCopy(png.bytes, png.length);
+                    }
+                }
+            }
         }
 
         NSArray<NSImage *> *images = [pasteboard readObjectsForClasses:@[[NSImage class]] options:@{}];
         NSImage *image = images.firstObject;
         if (!image) {
-            NSData *tiff = [pasteboard dataForType:NSPasteboardTypeTIFF];
-            if (tiff) {
-                image = [[NSImage alloc] initWithData:tiff];
-            }
+            image = [[NSImage alloc] initWithPasteboard:pasteboard];
         }
         if (!image) {
             return nullptr;
@@ -64,7 +84,25 @@ sk_sp<SkData> ReadClipboardImageData() {
             bitmap = [NSBitmapImageRep imageRepWithData:image.TIFFRepresentation];
         }
         if (!bitmap) {
-            return nullptr;
+            NSSize size = image.size;
+            if (size.width <= 0.0 || size.height <= 0.0) {
+                return nullptr;
+            }
+            bitmap = [[NSBitmapImageRep alloc]
+                initWithBitmapDataPlanes:nullptr
+                              pixelsWide:static_cast<NSInteger>(std::ceil(size.width))
+                              pixelsHigh:static_cast<NSInteger>(std::ceil(size.height))
+                           bitsPerSample:8
+                         samplesPerPixel:4
+                                hasAlpha:YES
+                                isPlanar:NO
+                          colorSpaceName:NSCalibratedRGBColorSpace
+                             bytesPerRow:0
+                            bitsPerPixel:0];
+            [NSGraphicsContext saveGraphicsState];
+            [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap]];
+            [image drawInRect:NSMakeRect(0.0, 0.0, size.width, size.height)];
+            [NSGraphicsContext restoreGraphicsState];
         }
 
         NSData *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];

@@ -68,7 +68,7 @@ private:
     void RenderPanels();
     void RenderToolbar();
     void RenderTextEditor();
-    void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight);
+    void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight, bool drawGrid, bool drawRulers);
     void RenderShape(SkCanvas *canvas, const Shape &shape);
     void AddShapeFromTool(Tool tool);
     void AddImageFromClipboard();

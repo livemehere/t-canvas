@@ -135,7 +135,7 @@ void Transformer::BeginDrag(DragMode mode, Vec2 mouseWorld, const Shape &shape) 
     }
 }
 
-void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape) {
+void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape, bool keepAspectRatio) {
     switch (mode_) {
         case DragMode::Move: {
             shape = startShape_;
@@ -148,7 +148,7 @@ void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape) {
         case DragMode::ResizeBottomRight:
         case DragMode::ResizeBottomLeft:
             shape = startShape_;
-            ResizeFromCorner(shape, mouseWorld - handleGrabOffset_, mode_);
+            ResizeFromCorner(shape, mouseWorld - handleGrabOffset_, mode_, keepAspectRatio);
             break;
         case DragMode::LineStart:
         case DragMode::LineEnd:
@@ -177,7 +177,7 @@ DragMode Transformer::ActiveMode() const {
     return mode_;
 }
 
-void Transformer::ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode) const {
+void Transformer::ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode, bool keepAspectRatio) const {
     Vec2 anchorLocal;
     switch (mode) {
         case DragMode::ResizeTopLeft:
@@ -197,9 +197,21 @@ void Transformer::ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode)
     }
 
     const Vec2 anchorWorld = LocalToWorld(anchorLocal, shape);
-    const Vec2 anchorToMouseLocal = Rotate(mouseWorld - anchorWorld, -shape.rotation);
-    const float newWidth = std::max(20.0f, std::abs(anchorToMouseLocal.x));
-    const float newHeight = std::max(20.0f, std::abs(anchorToMouseLocal.y));
+    Vec2 anchorToMouseLocal = Rotate(mouseWorld - anchorWorld, -shape.rotation);
+    float newWidth = std::max(20.0f, std::abs(anchorToMouseLocal.x));
+    float newHeight = std::max(20.0f, std::abs(anchorToMouseLocal.y));
+
+    if (keepAspectRatio && startShape_.size.y > 0.0001f) {
+        const float aspect = startShape_.size.x / startShape_.size.y;
+        if (newWidth / std::max(newHeight, 0.0001f) > aspect) {
+            newHeight = std::max(20.0f, newWidth / aspect);
+        } else {
+            newWidth = std::max(20.0f, newHeight * aspect);
+        }
+        anchorToMouseLocal.x = std::copysign(newWidth, anchorToMouseLocal.x);
+        anchorToMouseLocal.y = std::copysign(newHeight, anchorToMouseLocal.y);
+    }
+
     const Vec2 anchorToCenterLocal{
         anchorToMouseLocal.x * 0.5f,
         anchorToMouseLocal.y * 0.5f

@@ -28,6 +28,9 @@
 #include "../platform/FileDialog.h"
 
 namespace {
+constexpr float kLeftPanelWidth = 240.0f;
+constexpr float kRightPanelWidth = 300.0f;
+
 void GlfwErrorCallback(int error, const char *description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
@@ -282,7 +285,7 @@ void Application::HandleInput() {
     if (Shape *selectedShape = document_.SelectedShape();
         selectedShape && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) &&
         transformer_.ActiveMode() != DragMode::None) {
-        transformer_.UpdateDrag(mouseWorld, *selectedShape);
+        transformer_.UpdateDrag(mouseWorld, *selectedShape, io.KeyShift);
         if (transformer_.ActiveMode() == DragMode::Move) {
             ApplySnapping(*selectedShape);
         } else {
@@ -300,16 +303,24 @@ void Application::HandleInput() {
 
 void Application::HandleShortcuts() {
     ImGuiIO &io = ImGui::GetIO();
-    if (editingTextIndex_ >= 0 || io.WantCaptureKeyboard) {
+    if (editingTextIndex_ >= 0) {
         return;
     }
 
-    if (io.KeySuper && ImGui::IsKeyPressed(ImGuiKey_C)) {
+    const bool macCommandDown =
+        glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
+        glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
+
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_C)) {
         CopySelection();
         return;
     }
-    if (io.KeySuper && ImGui::IsKeyPressed(ImGuiKey_V)) {
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_V)) {
         PasteSelectionOrClipboardImage();
+        return;
+    }
+
+    if (io.WantCaptureKeyboard) {
         return;
     }
 
@@ -343,8 +354,6 @@ void Application::HandleShortcuts() {
 
 void Application::RenderPanels() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float leftWidth = 240.0f;
-    constexpr float rightWidth = 300.0f;
     constexpr ImGuiWindowFlags panelFlags =
         ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoResize |
@@ -353,7 +362,7 @@ void Application::RenderPanels() {
         ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(ImVec2(leftWidth, viewport->WorkSize.y));
+    ImGui::SetNextWindowSize(ImVec2(kLeftPanelWidth, viewport->WorkSize.y));
     ImGui::Begin("Layers", nullptr, panelFlags);
 
     ImGui::TextUnformatted("Layers");
@@ -384,8 +393,8 @@ void Application::RenderPanels() {
     }
     ImGui::End();
 
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - rightWidth, viewport->WorkPos.y));
-    ImGui::SetNextWindowSize(ImVec2(rightWidth, viewport->WorkSize.y));
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kRightPanelWidth, viewport->WorkPos.y));
+    ImGui::SetNextWindowSize(ImVec2(kRightPanelWidth, viewport->WorkSize.y));
     ImGui::Begin("Inspector", nullptr, panelFlags);
 
     ImGui::TextUnformatted("Inspector");
@@ -648,6 +657,16 @@ void Application::CopySelection() {
 }
 
 void Application::PasteSelectionOrClipboardImage() {
+    if (hasCopiedShape_) {
+        Shape pasted = copiedShape_;
+        pasted.name += " Copy";
+        pasted.position = pasted.position + Vec2{24.0f, 24.0f};
+        document_.AddShape(std::move(pasted));
+        copiedShape_ = *document_.SelectedShape();
+        transformer_.EndDrag();
+        return;
+    }
+
     sk_sp<SkData> data = ReadClipboardImageData();
     sk_sp<SkImage> image = data ? SkImages::DeferredFromEncodedData(data) : nullptr;
     if (image) {
@@ -663,17 +682,6 @@ void Application::PasteSelectionOrClipboardImage() {
         transformer_.EndDrag();
         return;
     }
-
-    if (!hasCopiedShape_) {
-        return;
-    }
-
-    Shape pasted = copiedShape_;
-    pasted.name += " Copy";
-    pasted.position = pasted.position + Vec2{24.0f, 24.0f};
-    document_.AddShape(std::move(pasted));
-    copiedShape_ = *document_.SelectedShape();
-    transformer_.EndDrag();
 }
 
 void Application::BeginTextEditing(int shapeIndex) {
@@ -747,7 +755,18 @@ void Application::FinishLineDrawing() {
     transformer_.EndDrag();
 }
 
-void Application::RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight) {
+void Application::RenderGridAndRulers(
+    SkCanvas *canvas,
+    float logicalWidth,
+    float logicalHeight,
+    bool drawGrid,
+    bool drawRulers
+) {
+    const float canvasLeft = kLeftPanelWidth;
+    const float canvasRight = std::max(canvasLeft, logicalWidth - kRightPanelWidth);
+    constexpr float rulerWidth = 36.0f;
+    constexpr float rulerHeight = 24.0f;
+
     float worldStep = 10.0f;
     while (worldStep * view_.zoom < 36.0f) {
         worldStep *= 2.0f;
@@ -756,29 +775,37 @@ void Application::RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, floa
         worldStep *= 0.5f;
     }
 
-    const Vec2 worldTopLeft = view_.ScreenToWorld({0.0f, 0.0f});
-    const Vec2 worldBottomRight = view_.ScreenToWorld({logicalWidth, logicalHeight});
+    const Vec2 worldTopLeft = view_.ScreenToWorld({canvasLeft, 0.0f});
+    const Vec2 worldBottomRight = view_.ScreenToWorld({canvasRight, logicalHeight});
     const float firstWorldX = std::floor(worldTopLeft.x / worldStep) * worldStep;
     const float firstWorldY = std::floor(worldTopLeft.y / worldStep) * worldStep;
 
-    SkPaint grid;
-    grid.setAntiAlias(false);
-    grid.setColor(SkColorSetARGB(14, 255, 255, 255));
-    grid.setStrokeWidth(1.0f);
+    if (drawGrid) {
+        SkPaint grid;
+        grid.setAntiAlias(false);
+        grid.setColor(SkColorSetARGB(14, 255, 255, 255));
+        grid.setStrokeWidth(1.0f);
 
-    for (float worldX = firstWorldX; worldX <= worldBottomRight.x + worldStep; worldX += worldStep) {
-        const float x = worldX * view_.zoom + view_.pan.x;
-        canvas->drawLine(x, 0.0f, x, logicalHeight, grid);
+        for (float worldX = firstWorldX; worldX <= worldBottomRight.x + worldStep; worldX += worldStep) {
+            const float x = worldX * view_.zoom + view_.pan.x;
+            if (x >= canvasLeft && x <= canvasRight) {
+                canvas->drawLine(x, 0.0f, x, logicalHeight, grid);
+            }
+        }
+        for (float worldY = firstWorldY; worldY <= worldBottomRight.y + worldStep; worldY += worldStep) {
+            const float y = worldY * view_.zoom + view_.pan.y;
+            canvas->drawLine(canvasLeft, y, canvasRight, y, grid);
+        }
     }
-    for (float worldY = firstWorldY; worldY <= worldBottomRight.y + worldStep; worldY += worldStep) {
-        const float y = worldY * view_.zoom + view_.pan.y;
-        canvas->drawLine(0.0f, y, logicalWidth, y, grid);
+
+    if (!drawRulers) {
+        return;
     }
 
     SkPaint rulerBg;
     rulerBg.setColor(SkColorSetARGB(210, 24, 26, 30));
-    canvas->drawRect(SkRect::MakeXYWH(0.0f, 0.0f, logicalWidth, 24.0f), rulerBg);
-    canvas->drawRect(SkRect::MakeXYWH(0.0f, 0.0f, 36.0f, logicalHeight), rulerBg);
+    canvas->drawRect(SkRect::MakeLTRB(canvasLeft, 0.0f, canvasRight, rulerHeight), rulerBg);
+    canvas->drawRect(SkRect::MakeXYWH(canvasLeft, 0.0f, rulerWidth, logicalHeight), rulerBg);
 
     SkPaint tick;
     tick.setColor(SkColorSetARGB(120, 210, 214, 220));
@@ -792,15 +819,17 @@ void Application::RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, floa
     char label[32] = {};
     for (float worldX = firstWorldX; worldX <= worldBottomRight.x + worldStep; worldX += worldStep) {
         const float x = worldX * view_.zoom + view_.pan.x;
-        canvas->drawLine(x, 16.0f, x, 24.0f, tick);
-        std::snprintf(label, sizeof(label), "%d", static_cast<int>(std::round(worldX)));
-        canvas->drawString(label, x + 3.0f, 12.0f, font, labelPaint);
+        if (x >= canvasLeft + rulerWidth && x <= canvasRight) {
+            canvas->drawLine(x, 16.0f, x, rulerHeight, tick);
+            std::snprintf(label, sizeof(label), "%d", static_cast<int>(std::round(worldX)));
+            canvas->drawString(label, x + 3.0f, 12.0f, font, labelPaint);
+        }
     }
     for (float worldY = firstWorldY; worldY <= worldBottomRight.y + worldStep; worldY += worldStep) {
         const float y = worldY * view_.zoom + view_.pan.y;
-        canvas->drawLine(28.0f, y, 36.0f, y, tick);
+        canvas->drawLine(canvasLeft + 28.0f, y, canvasLeft + rulerWidth, y, tick);
         std::snprintf(label, sizeof(label), "%d", static_cast<int>(std::round(worldY)));
-        canvas->drawString(label, 4.0f, std::max(11.0f, y - 3.0f), font, labelPaint);
+        canvas->drawString(label, canvasLeft + 4.0f, std::max(11.0f, y - 3.0f), font, labelPaint);
     }
 }
 
@@ -998,7 +1027,7 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 
     canvas->save();
     canvas->scale(dpr, dpr);
-    RenderGridAndRulers(canvas, logicalWidth, logicalHeight);
+    RenderGridAndRulers(canvas, logicalWidth, logicalHeight, true, false);
     canvas->restore();
 
     canvas->save();
@@ -1041,6 +1070,11 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
         }
         canvas->restore();
     }
+
+    canvas->save();
+    canvas->scale(dpr, dpr);
+    RenderGridAndRulers(canvas, logicalWidth, logicalHeight, false, true);
+    canvas->restore();
 
     skia_.EndFrame();
 
