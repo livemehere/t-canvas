@@ -1,5 +1,6 @@
 #include "Transformer.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -7,6 +8,31 @@
 #include <skia/core/SkPaint.h>
 #include <skia/core/SkPath.h>
 #include <skia/core/SkRect.h>
+
+namespace {
+bool IsLineShape(const Shape &shape) {
+    return shape.type == ShapeType::Line || shape.type == ShapeType::Arrow;
+}
+
+Vec2 LineStart(const Shape &shape) {
+    return LocalToWorld({-shape.size.x * 0.5f, 0.0f}, shape);
+}
+
+Vec2 LineEnd(const Shape &shape) {
+    return LocalToWorld({shape.size.x * 0.5f, 0.0f}, shape);
+}
+
+float DistanceToSegment(Vec2 point, Vec2 a, Vec2 b) {
+    const Vec2 ab = b - a;
+    const Vec2 ap = point - a;
+    const float lengthSq = ab.x * ab.x + ab.y * ab.y;
+    if (lengthSq <= 0.0001f) {
+        return Distance(point, a);
+    }
+    const float t = std::max(0.0f, std::min(1.0f, (ap.x * ab.x + ap.y * ab.y) / lengthSq));
+    return Distance(point, a + ab * t);
+}
+} // namespace
 
 Vec2 Transformer::GetRotateHandle(const Shape &shape) const {
     const auto corners = GetShapeCorners(shape);
@@ -16,6 +42,15 @@ Vec2 Transformer::GetRotateHandle(const Shape &shape) const {
 }
 
 Vec2 Transformer::GetHandleWorldPosition(const Shape &shape, DragMode mode) const {
+    if (IsLineShape(shape)) {
+        if (mode == DragMode::LineStart) {
+            return LineStart(shape);
+        }
+        if (mode == DragMode::LineEnd) {
+            return LineEnd(shape);
+        }
+    }
+
     const auto corners = GetShapeCorners(shape);
     switch (mode) {
         case DragMode::ResizeTopLeft:
@@ -35,6 +70,22 @@ Vec2 Transformer::GetHandleWorldPosition(const Shape &shape, DragMode mode) cons
 
 DragMode Transformer::HitTest(Vec2 screen, const Shape &shape, const CanvasView &view) const {
     constexpr float handleRadius = 7.0f;
+
+    if (IsLineShape(shape)) {
+        const Vec2 start = view.WorldToScreen(LineStart(shape));
+        const Vec2 end = view.WorldToScreen(LineEnd(shape));
+        if (Distance(screen, start) <= handleRadius) {
+            return DragMode::LineStart;
+        }
+        if (Distance(screen, end) <= handleRadius) {
+            return DragMode::LineEnd;
+        }
+        if (DistanceToSegment(screen, start, end) <= 6.0f) {
+            return DragMode::Move;
+        }
+        return DragMode::None;
+    }
+
     const auto corners = GetShapeCorners(shape);
     const std::array<DragMode, 4> cornerModes{
         DragMode::ResizeTopLeft,
@@ -76,7 +127,9 @@ void Transformer::BeginDrag(DragMode mode, Vec2 mouseWorld, const Shape &shape) 
         mode_ == DragMode::ResizeTopLeft ||
         mode_ == DragMode::ResizeTopRight ||
         mode_ == DragMode::ResizeBottomRight ||
-        mode_ == DragMode::ResizeBottomLeft
+        mode_ == DragMode::ResizeBottomLeft ||
+        mode_ == DragMode::LineStart ||
+        mode_ == DragMode::LineEnd
     ) {
         handleGrabOffset_ = mouseWorld - GetHandleWorldPosition(shape, mode_);
     }
@@ -96,6 +149,11 @@ void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape) {
         case DragMode::ResizeBottomLeft:
             shape = startShape_;
             ResizeFromCorner(shape, mouseWorld - handleGrabOffset_, mode_);
+            break;
+        case DragMode::LineStart:
+        case DragMode::LineEnd:
+            shape = startShape_;
+            ResizeLineEndpoint(shape, mouseWorld - handleGrabOffset_, mode_);
             break;
         case DragMode::Rotate: {
             shape = startShape_;
@@ -151,14 +209,51 @@ void Transformer::ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode)
     shape.position = anchorWorld + Rotate(anchorToCenterLocal, shape.rotation);
 }
 
+void Transformer::ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode) const {
+    const Vec2 anchor = mode == DragMode::LineStart ? LineEnd(startShape_) : LineStart(startShape_);
+    const Vec2 dragged = mouseWorld;
+    const Vec2 delta = dragged - anchor;
+    const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
+
+    shape.position = Midpoint(anchor, dragged);
+    shape.size.x = length;
+    shape.size.y = 1.0f;
+    shape.rotation = RadiansToDegrees(std::atan2(delta.y, delta.x));
+    if (mode == DragMode::LineStart) {
+        shape.rotation += 180.0f;
+    }
+}
+
 void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &view) const {
+    if (IsLineShape(shape)) {
+        const Vec2 start = view.WorldToScreen(LineStart(shape));
+        const Vec2 end = view.WorldToScreen(LineEnd(shape));
+
+        SkPaint outline;
+        outline.setAntiAlias(true);
+        outline.setColor(SkColorSetARGB(155, 170, 185, 205));
+        outline.setStyle(SkPaint::kStroke_Style);
+        outline.setStrokeWidth(1.0f);
+        canvas->drawLine(start.x, start.y, end.x, end.y, outline);
+
+        SkPaint handle;
+        handle.setAntiAlias(true);
+        handle.setColor(SkColorSetARGB(230, 224, 232, 242));
+        handle.setStyle(SkPaint::kFill_Style);
+
+        constexpr float half = 4.0f;
+        canvas->drawRect(SkRect::MakeXYWH(start.x - half, start.y - half, half * 2.0f, half * 2.0f), handle);
+        canvas->drawRect(SkRect::MakeXYWH(end.x - half, end.y - half, half * 2.0f, half * 2.0f), handle);
+        return;
+    }
+
     const auto corners = GetShapeCorners(shape);
 
     SkPaint outline;
     outline.setAntiAlias(true);
-    outline.setColor(SkColorSetARGB(255, 255, 255, 255));
+    outline.setColor(SkColorSetARGB(155, 170, 185, 205));
     outline.setStyle(SkPaint::kStroke_Style);
-    outline.setStrokeWidth(1.5f);
+    outline.setStrokeWidth(1.0f);
 
     SkPath path;
     Vec2 p = view.WorldToScreen(corners[0]);
@@ -172,13 +267,13 @@ void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &v
 
     SkPaint handle;
     handle.setAntiAlias(true);
-    handle.setColor(SK_ColorWHITE);
+    handle.setColor(SkColorSetARGB(230, 224, 232, 242));
     handle.setStyle(SkPaint::kFill_Style);
 
     SkPaint rotateHandle = handle;
-    rotateHandle.setColor(SkColorSetARGB(255, 255, 220, 80));
+    rotateHandle.setColor(SkColorSetARGB(230, 245, 205, 95));
 
-    constexpr float half = 6.0f;
+    constexpr float half = 4.0f;
     for (Vec2 corner: corners) {
         const Vec2 screen = view.WorldToScreen(corner);
         canvas->drawRect(SkRect::MakeXYWH(screen.x - half, screen.y - half, half * 2.0f, half * 2.0f), handle);
@@ -187,5 +282,5 @@ void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &v
     const Vec2 top = view.WorldToScreen(Midpoint(corners[0], corners[1]));
     const Vec2 rotate = view.WorldToScreen(GetRotateHandle(shape));
     canvas->drawLine(top.x, top.y, rotate.x, rotate.y, outline);
-    canvas->drawCircle(rotate.x, rotate.y, 7.0f, rotateHandle);
+    canvas->drawCircle(rotate.x, rotate.y, 5.0f, rotateHandle);
 }

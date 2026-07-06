@@ -12,7 +12,9 @@ enum class DragMode {
     ResizeTopRight,
     ResizeBottomRight,
     ResizeBottomLeft,
-    Rotate
+    Rotate,
+    LineStart,
+    LineEnd
 };
 
 class Transformer {
@@ -35,4 +37,5 @@ private:
     Vec2 GetRotateHandle(const Shape &shape) const;
     Vec2 GetHandleWorldPosition(const Shape &shape, DragMode mode) const;
     void ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode) const;
+    void ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode) const;
 };
