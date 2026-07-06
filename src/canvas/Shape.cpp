@@ -1,5 +1,20 @@
 #include "Shape.h"
 
+#include <algorithm>
+
+namespace {
+float DistanceToSegment(Vec2 point, Vec2 a, Vec2 b) {
+    const Vec2 ab = b - a;
+    const Vec2 ap = point - a;
+    const float lengthSq = ab.x * ab.x + ab.y * ab.y;
+    if (lengthSq <= 0.0001f) {
+        return Distance(point, a);
+    }
+    const float t = Clamp((ap.x * ab.x + ap.y * ab.y) / lengthSq, 0.0f, 1.0f);
+    return Distance(point, a + ab * t);
+}
+} // namespace
+
 Vec2 LocalToWorld(Vec2 point, const Shape &shape) {
     return shape.position + Rotate(point, shape.rotation);
 }
@@ -24,6 +39,12 @@ Vec2 Midpoint(Vec2 a, Vec2 b) {
 }
 
 bool PointInShape(Vec2 world, const Shape &shape) {
+    if (shape.type == ShapeType::Line || shape.type == ShapeType::Arrow) {
+        const Vec2 start = LocalToWorld({-shape.size.x * 0.5f, 0.0f}, shape);
+        const Vec2 end = LocalToWorld({shape.size.x * 0.5f, 0.0f}, shape);
+        return DistanceToSegment(world, start, end) <= std::max(6.0f, shape.borderWidth * 2.0f);
+    }
+
     const Vec2 local = WorldToLocal(world, shape);
     const float hw = shape.size.x * 0.5f;
     const float hh = shape.size.y * 0.5f;
