@@ -35,6 +35,8 @@ struct Shape {
     float borderWidth = 3.0f;
     Color fill{1.0f, 0.22f, 0.20f, 0.0f};
     Color border{1.0f, 0.22f, 0.20f, 1.0f};
+    bool visible = true;
+    bool locked = false;
     bool blurBackground = false;
     float blurRadius = 12.0f;
     float brushSize = 44.0f;

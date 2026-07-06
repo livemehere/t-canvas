@@ -27,7 +27,9 @@ public:
     };
 
     bool Init();
+
     void Run();
+
     void Shutdown();
 
     struct ShapePreferences {
@@ -36,7 +38,7 @@ public:
         float borderWidth = 3.0f;
         float cornerRadius = 0.0f;
         bool blurBackground = false;
-        float blurRadius = 12.0f;
+        float blurRadius = 3.5f;
         float brushSize = 52.0f;
     };
 
@@ -54,6 +56,14 @@ private:
     struct DocumentSnapshot {
         std::vector<Shape> shapes;
         std::vector<int> selectedShapes;
+    };
+
+    struct ExportVariation {
+        int width = 1;
+        int height = 1;
+        int cachedWidth = 0;
+        int cachedHeight = 0;
+        sk_sp<SkData> data;
     };
 
     GLFWwindow *window_ = nullptr;
@@ -94,68 +104,134 @@ private:
     int copiedClipboardChangeCount_ = -1;
     std::vector<Shape> copiedShapes_;
     float brushToolSize_ = 52.0f;
+    int preferredWindowWidth_ = 1920;
+    int preferredWindowHeight_ = 1080;
+    int lastSavedWindowWidth_ = 1920;
+    int lastSavedWindowHeight_ = 1080;
     bool showPreferencesDialog_ = false;
     std::array<ShapePreferences, 7> shapePreferences_;
     bool showExportDialog_ = false;
-    int exportWidth_ = 0;
-    int exportHeight_ = 0;
-    int cachedExportWidth_ = 0;
-    int cachedExportHeight_ = 0;
-    sk_sp<SkData> cachedExportData_;
+    std::vector<ExportVariation> exportVariations_;
+    int activeExportVariation_ = 0;
+    unsigned int exportPreviewTexture_ = 0;
+    int exportPreviewTextureWidth_ = 0;
+    int exportPreviewTextureHeight_ = 0;
+    const SkData *exportPreviewTextureData_ = nullptr;
     std::vector<DocumentSnapshot> undoStack_;
     std::vector<DocumentSnapshot> redoStack_;
     std::vector<SnapGuide> snapGuides_;
 
     void HandleInput();
+
     void HandleShortcuts();
+
     void Render(float dpr, int framebufferWidth, int framebufferHeight);
+
     void RenderPanels();
+
     void RenderToolbar();
+
     void RenderBrushControls();
+
     void RenderPreferencesDialog();
+
     void RenderTextEditor();
+
     void RenderExportDialog();
+
+    void RenderExportPreview(sk_sp<SkData> data, Vec2 size);
+
     void RenderGridAndRulers(SkCanvas *canvas, float logicalWidth, float logicalHeight, bool drawGrid, bool drawRulers);
+
     void RenderShape(SkCanvas *canvas, const Shape &shape) const;
+
     void RenderBlurOverlays(SkCanvas *canvas, float dpr);
+
     void RenderSelectionArea(SkCanvas *canvas, float dpr);
+
     void RenderBrushPreview(SkCanvas *canvas, float dpr);
+
+    void RenderSelectionSizeHud(SkCanvas *canvas, float logicalWidth, float logicalHeight);
+
     void RenderGroupTransformer(SkCanvas *canvas);
+
     void AddShapeFromTool(Tool tool);
+
     void ApplyPreferences(Shape &shape) const;
+
     void ResetDefaultPreferences();
+
     void LoadPreferences();
+
     void SavePreferences() const;
+
     std::string PreferencesPath() const;
+
+    void TrackWindowSizePreference();
+
     void AddImageFromClipboard();
+
     void CopySelection();
+
     void PasteSelectionOrClipboardImage();
+
     sk_sp<SkData> EncodeSelectionPng(int width, int height) const;
+
     void OpenExportDialog();
+
+    sk_sp<SkData> ExportVariationData(ExportVariation &variation);
+
     bool SaveDataToFile(const std::string &path, sk_sp<SkData> data) const;
+
+    std::string ExportVariantPath(const std::string &path, int width, int height, bool multiple) const;
+
     DocumentSnapshot CaptureDocumentSnapshot() const;
+
     void RestoreDocumentSnapshot(const DocumentSnapshot &snapshot);
+
     void PushHistory();
+
     void Undo();
+
     void Redo();
+
     Shape SelectionBounds() const;
+
     std::vector<int> ShapesInSelectionArea() const;
+
     void BeginGroupTransform(DragMode mode, Vec2 mouseWorld);
+
     void UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio);
+
     void FinishGroupTransform();
+
     void BeginTextEditing(int shapeIndex);
+
     void FinishTextEditing();
+
     void InsertTextEditorNewline();
+
     void BeginLineDrawing(Tool tool, Vec2 startWorld);
+
     void UpdateLineDrawing(Vec2 endWorld);
+
     void FinishLineDrawing();
+
     void BeginBoxDrawing(Tool tool, Vec2 startWorld);
+
     void UpdateBoxDrawing(Vec2 endWorld);
+
     void FinishBoxDrawing();
+
     void BeginBrushStroke(Vec2 startWorld);
+
     void UpdateBrushStroke(Vec2 world);
+
     void FinishBrushStroke();
+
     void ApplySnapping(Shape &shape);
+
     bool IsSnapDisabled() const;
+
     Vec2 ViewCenterWorld() const;
 };

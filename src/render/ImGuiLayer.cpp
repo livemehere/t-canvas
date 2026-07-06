@@ -11,13 +11,13 @@ void LoadSystemFont() {
 
     constexpr float fontSize = 15.0f;
     const char *fontPaths[] = {
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
         "/System/Library/Fonts/SFNS.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+        "/System/Library/Fonts/Helvetica.ttc"
     };
 
     for (const char *path: fontPaths) {
-        if (io.Fonts->AddFontFromFileTTF(path, fontSize)) {
+        if (io.Fonts->AddFontFromFileTTF(path, fontSize, nullptr, io.Fonts->GetGlyphRangesKorean())) {
             return;
         }
     }

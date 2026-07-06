@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,7 @@
 #include <skia/core/SkFontStyle.h>
 #include <skia/core/SkImage.h>
 #include <skia/core/SkImageInfo.h>
+#include <skia/core/SkM44.h>
 #include <skia/core/SkPaint.h>
 #include <skia/core/SkPixmap.h>
 #include <skia/core/SkPath.h>
@@ -34,6 +36,7 @@
 #include <skia/core/SkTypeface.h>
 #include <skia/effects/SkImageFilters.h>
 #include <skia/encode/SkPngEncoder.h>
+#include <skia/src/base/SkUTF.h>
 #include <skia/ports/SkFontMgr_mac_ct.h>
 
 #include "../platform/FileDialog.h"
@@ -61,7 +64,7 @@ sk_sp<SkTypeface> CanvasTypeface() {
     static sk_sp<SkTypeface> typeface = [] {
         sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
         if (fontMgr) {
-            for (const char *family: {"SF Pro Text", "Helvetica Neue", "Helvetica", "Apple SD Gothic Neo"}) {
+            for (const char *family: {"Apple SD Gothic Neo", "SF Pro Text", "Helvetica Neue", "Helvetica"}) {
                 sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyle(family, SkFontStyle::Normal());
                 if (matched) {
                     return matched;
@@ -90,6 +93,78 @@ sk_sp<SkTypeface> CanvasTypeface() {
         return sk_sp<SkTypeface>();
     }();
     return typeface;
+}
+
+sk_sp<SkFontMgr> CanvasFontMgr() {
+    static sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
+    return fontMgr;
+}
+
+sk_sp<SkTypeface> TypefaceForCharacter(SkUnichar character, sk_sp<SkTypeface> preferred) {
+    SkFont preferredFont(preferred);
+    if (preferredFont.unicharToGlyph(character) != 0) {
+        return preferred;
+    }
+
+    sk_sp<SkFontMgr> fontMgr = CanvasFontMgr();
+    if (!fontMgr) {
+        return preferred;
+    }
+
+    const char *languages[] = {"ko", "en"};
+    sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyleCharacter(
+        nullptr,
+        SkFontStyle::Normal(),
+        languages,
+        2,
+        character
+    );
+    return matched ? matched : preferred;
+}
+
+float DrawTextWithFallback(SkCanvas *canvas, const std::string &line, float x, float baseline, float size, const SkPaint &paint) {
+    if (line.empty()) {
+        return 0.0f;
+    }
+
+    const char *start = line.data();
+    const char *cursor = start;
+    const char *end = start + line.size();
+    sk_sp<SkTypeface> currentTypeface;
+    std::string run;
+    float advance = 0.0f;
+    sk_sp<SkTypeface> preferred = CanvasTypeface();
+
+    auto flush = [&] {
+        if (run.empty()) {
+            return;
+        }
+        SkFont font(currentTypeface ? currentTypeface : preferred, size);
+        canvas->drawSimpleText(
+            run.data(),
+            run.size(),
+            SkTextEncoding::kUTF8,
+            x + advance,
+            baseline,
+            font,
+            paint
+        );
+        advance += font.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
+        run.clear();
+    };
+
+    while (cursor < end) {
+        const char *before = cursor;
+        SkUnichar character = SkUTF::NextUTF8WithReplacement(&cursor, end);
+        sk_sp<SkTypeface> typeface = TypefaceForCharacter(character, preferred);
+        if (!currentTypeface || currentTypeface.get() != typeface.get()) {
+            flush();
+            currentTypeface = typeface;
+        }
+        run.append(before, static_cast<size_t>(cursor - before));
+    }
+    flush();
+    return advance;
 }
 
 const char *ToolLabel(Application::Tool tool) {
@@ -280,6 +355,14 @@ void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
     shape.rotation = RadiansToDegrees(std::atan2(delta.y, delta.x));
 }
 
+Vec2 ConstrainLineEnd(Vec2 start, Vec2 end) {
+    const Vec2 delta = end - start;
+    if (std::abs(delta.x) >= std::abs(delta.y)) {
+        return {end.x, start.y};
+    }
+    return {start.x, end.y};
+}
+
 int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
     if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways && data->UserData) {
         *static_cast<int *>(data->UserData) = data->CursorPos;
@@ -312,7 +395,7 @@ bool Application::Init() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
-    window_ = glfwCreateWindow(1280, 720, "TCanvas", nullptr, nullptr);
+    window_ = glfwCreateWindow(preferredWindowWidth_, preferredWindowHeight_, "TCanvas", nullptr, nullptr);
     if (!window_) {
         glfwTerminate();
         return false;
@@ -340,6 +423,7 @@ void Application::Run() {
         int windowHeight = 0;
         glfwGetWindowSize(window_, &windowWidth, &windowHeight);
         glfwGetFramebufferSize(window_, &framebufferWidth, &framebufferHeight);
+        TrackWindowSizePreference();
         const float dpr = static_cast<float>(framebufferWidth) / static_cast<float>(windowWidth);
 
         glViewport(0, 0, framebufferWidth, framebufferHeight);
@@ -418,7 +502,7 @@ void Application::HandleInput() {
 
     if (isDrawingLine_) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            UpdateLineDrawing(mouseWorld);
+            UpdateLineDrawing(io.KeyShift ? ConstrainLineEnd(lineStartWorld_, mouseWorld) : mouseWorld);
             return;
         }
         FinishLineDrawing();
@@ -486,6 +570,9 @@ void Application::HandleInput() {
         if (mode == DragMode::None) {
             const auto &shapes = document_.Shapes();
             for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+                if (!shapes[i].visible || shapes[i].locked) {
+                    continue;
+                }
                 if (PointInShape(mouseWorld, shapes[i])) {
                     document_.SelectShape(i);
                     selectedShape = document_.SelectedShape();
@@ -630,18 +717,27 @@ void Application::RenderPanels() {
     ImGui::TextUnformatted("Layers");
     ImGui::Separator();
 
-    const auto &shapes = document_.Shapes();
+    auto &shapes = document_.Shapes();
     for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+        Shape &layerShape = shapes[i];
         const bool selected = document_.IsShapeSelected(i);
         ImGui::PushID(i);
-        if (ImGui::Selectable(shapes[i].name.c_str(), selected)) {
+        const float rowStartX = ImGui::GetCursorPosX();
+        const float buttonSize = 24.0f;
+        const float buttonGap = 4.0f;
+        const float rowWidth = ImGui::GetContentRegionAvail().x;
+        const float labelWidth = std::max(40.0f, rowWidth - buttonSize * 2.0f - buttonGap * 2.0f);
+        ImGui::BeginDisabled(!layerShape.visible || layerShape.locked);
+        if (ImGui::Selectable(layerShape.name.c_str(), selected, 0, ImVec2(labelWidth, 0.0f))) {
             if (ImGui::GetIO().KeyShift && lastLayerSelectionIndex_ >= 0) {
                 std::vector<int> range;
                 const int start = std::min(lastLayerSelectionIndex_, i);
                 const int end = std::max(lastLayerSelectionIndex_, i);
                 range.reserve(static_cast<size_t>(end - start + 1));
                 for (int index = start; index <= end; ++index) {
-                    range.push_back(index);
+                    if (shapes[index].visible && !shapes[index].locked) {
+                        range.push_back(index);
+                    }
                 }
                 document_.SelectShapes(std::move(range));
             } else {
@@ -652,7 +748,7 @@ void Application::RenderPanels() {
         }
         if (ImGui::BeginDragDropSource()) {
             ImGui::SetDragDropPayload("SHAPE_INDEX", &i, sizeof(int));
-            ImGui::TextUnformatted(shapes[i].name.c_str());
+            ImGui::TextUnformatted(layerShape.name.c_str());
             ImGui::EndDragDropSource();
         }
         if (ImGui::BeginDragDropTarget()) {
@@ -663,6 +759,31 @@ void Application::RenderPanels() {
                 transformer_.EndDrag();
             }
             ImGui::EndDragDropTarget();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(rowStartX + labelWidth + buttonGap);
+        if (ImGui::Button(layerShape.visible ? "V" : "-", ImVec2(buttonSize, 22.0f))) {
+            PushHistory();
+            layerShape.visible = !layerShape.visible;
+            if (!layerShape.visible && document_.IsShapeSelected(i)) {
+                document_.SelectShape(-1);
+                transformer_.EndDrag();
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(layerShape.visible ? "Hide" : "Show");
+        }
+        ImGui::SameLine(rowStartX + labelWidth + buttonGap + buttonSize + buttonGap);
+        if (ImGui::Button(layerShape.locked ? "L" : "U", ImVec2(buttonSize, 22.0f))) {
+            PushHistory();
+            layerShape.locked = !layerShape.locked;
+            if (layerShape.locked && document_.IsShapeSelected(i)) {
+                document_.SelectShape(-1);
+                transformer_.EndDrag();
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(layerShape.locked ? "Unlock" : "Lock");
         }
         ImGui::PopID();
     }
@@ -742,6 +863,22 @@ void Application::RenderPanels() {
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
         ImGui::SeparatorText("Appearance");
+        if (shape->type == ShapeType::Text) {
+            std::array<char, 4096> contentBuffer{};
+            std::strncpy(contentBuffer.data(), shape->text.c_str(), contentBuffer.size() - 1);
+            ImGui::InputTextMultiline(
+                "Content",
+                contentBuffer.data(),
+                contentBuffer.size(),
+                ImVec2(-1.0f, 96.0f)
+            );
+            if (ImGui::IsItemActivated()) {
+                PushHistory();
+            }
+            if (ImGui::IsItemEdited()) {
+                shape->text = contentBuffer.data();
+            }
+        }
         ImGui::ColorEdit4("Fill", &shape->fill.r);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::ColorEdit4("Border", &shape->border.r);
@@ -954,43 +1091,167 @@ void Application::RenderExportDialog() {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(360.0f, 188.0f), ImGuiCond_Appearing);
+    ImGuiViewport *viewport = ImGui::GetMainViewport();
+    const ImVec2 dialogSize{viewport->WorkSize.x * 0.8f, viewport->WorkSize.y * 0.8f};
+    ImGui::SetNextWindowPos(
+        ImVec2{
+            viewport->WorkPos.x + (viewport->WorkSize.x - dialogSize.x) * 0.5f,
+            viewport->WorkPos.y + (viewport->WorkSize.y - dialogSize.y) * 0.5f
+        },
+        ImGuiCond_Appearing
+    );
+    ImGui::SetNextWindowSize(dialogSize, ImGuiCond_Appearing);
     ImGui::Begin("Export Selection", &showExportDialog_,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
 
-    bool changed = false;
-    changed = ImGui::InputInt("Width", &exportWidth_) || changed;
-    changed = ImGui::InputInt("Height", &exportHeight_) || changed;
-    exportWidth_ = std::max(1, exportWidth_);
-    exportHeight_ = std::max(1, exportHeight_);
+    if (exportVariations_.empty()) {
+        OpenExportDialog();
+    }
+    if (exportVariations_.empty()) {
+        showExportDialog_ = false;
+        ImGui::End();
+        return;
+    }
+    activeExportVariation_ = Clamp(activeExportVariation_, 0, static_cast<int>(exportVariations_.size()) - 1);
 
-    if (changed || !cachedExportData_ ||
-        cachedExportWidth_ != exportWidth_ || cachedExportHeight_ != exportHeight_) {
-        cachedExportData_ = EncodeSelectionPng(exportWidth_, exportHeight_);
-        cachedExportWidth_ = exportWidth_;
-        cachedExportHeight_ = exportHeight_;
+    ImGui::BeginChild("ExportOptions", ImVec2(360.0f, 0.0f), true);
+    ImGui::TextUnformatted("Variations");
+    ImGui::Separator();
+    for (int i = 0; i < static_cast<int>(exportVariations_.size()); ++i) {
+        ExportVariation &variation = exportVariations_[i];
+        ImGui::PushID(i);
+        const bool selected = activeExportVariation_ == i;
+        if (ImGui::Selectable("##VariationSelect", selected, 0, ImVec2(22.0f, 26.0f))) {
+            activeExportVariation_ = i;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(84.0f);
+        if (ImGui::InputInt("W", &variation.width, 0, 0)) {
+            variation.width = std::max(1, variation.width);
+            variation.data = nullptr;
+            variation.cachedWidth = 0;
+            exportPreviewTextureData_ = nullptr;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(84.0f);
+        if (ImGui::InputInt("H", &variation.height, 0, 0)) {
+            variation.height = std::max(1, variation.height);
+            variation.data = nullptr;
+            variation.cachedHeight = 0;
+            exportPreviewTextureData_ = nullptr;
+        }
+        sk_sp<SkData> data = ExportVariationData(variation);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%.1f KB", data ? static_cast<float>(data->size()) / 1024.0f : 0.0f);
+        ImGui::PopID();
     }
 
-    const size_t byteSize = cachedExportData_ ? cachedExportData_->size() : 0;
-    ImGui::Text("Size: %d x %d", exportWidth_, exportHeight_);
-    ImGui::Text("PNG: %.1f KB", static_cast<float>(byteSize) / 1024.0f);
-
-    ImGui::Separator();
-    const bool canExport = cachedExportData_ != nullptr;
-    ImGui::BeginDisabled(!canExport);
-    if (ImGui::Button("Copy to Clipboard", ImVec2(152.0f, 32.0f))) {
-        WriteClipboardImageData(cachedExportData_);
+    if (ImGui::Button("Add", ImVec2(82.0f, 30.0f))) {
+        const ExportVariation seed = exportVariations_[activeExportVariation_];
+        exportVariations_.push_back({seed.width * 2, seed.height * 2});
+        activeExportVariation_ = static_cast<int>(exportVariations_.size()) - 1;
+        exportPreviewTextureData_ = nullptr;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Save File", ImVec2(112.0f, 32.0f))) {
-        const std::string path = SavePngFileDialog();
-        if (!path.empty()) {
-            SaveDataToFile(path, cachedExportData_);
-        }
+    ImGui::BeginDisabled(exportVariations_.size() <= 1);
+    if (ImGui::Button("Remove", ImVec2(92.0f, 30.0f))) {
+        exportVariations_.erase(exportVariations_.begin() + activeExportVariation_);
+        activeExportVariation_ = Clamp(activeExportVariation_, 0, static_cast<int>(exportVariations_.size()) - 1);
+        exportPreviewTextureData_ = nullptr;
     }
     ImGui::EndDisabled();
 
+    ExportVariation &active = exportVariations_[activeExportVariation_];
+    sk_sp<SkData> activeData = ExportVariationData(active);
+
+    ImGui::Separator();
+    const bool canExport = activeData != nullptr;
+    ImGui::BeginDisabled(!canExport);
+    if (ImGui::Button("Copy to Clipboard", ImVec2(-1.0f, 32.0f))) {
+        WriteClipboardImageData(activeData);
+    }
+    if (ImGui::Button(exportVariations_.size() > 1 ? "Save All Files" : "Save File", ImVec2(-1.0f, 32.0f))) {
+        const std::string path = SavePngFileDialog();
+        if (!path.empty()) {
+            const bool multiple = exportVariations_.size() > 1;
+            for (ExportVariation &variation: exportVariations_) {
+                SaveDataToFile(
+                    ExportVariantPath(path, variation.width, variation.height, multiple),
+                    ExportVariationData(variation)
+                );
+            }
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    ImGui::BeginChild("ExportPreview", ImVec2(0.0f, 0.0f), true);
+    ImGui::TextUnformatted("Preview");
+    ImGui::Separator();
+    const ImVec2 previewAvail = ImGui::GetContentRegionAvail();
+    RenderExportPreview(activeData, {previewAvail.x, previewAvail.y});
+    ImGui::EndChild();
+
     ImGui::End();
+}
+
+void Application::RenderExportPreview(sk_sp<SkData> data, Vec2 size) {
+    if (!data || size.x <= 1.0f || size.y <= 1.0f) {
+        ImGui::TextDisabled("No preview");
+        return;
+    }
+
+    if (exportPreviewTexture_ == 0 || exportPreviewTextureData_ != data.get()) {
+        sk_sp<SkImage> image = SkImages::DeferredFromEncodedData(data);
+        if (!image) {
+            ImGui::TextDisabled("Preview unavailable");
+            return;
+        }
+
+        const SkImageInfo info = SkImageInfo::MakeN32Premul(image->width(), image->height());
+        std::vector<unsigned char> pixels(static_cast<size_t>(info.computeMinByteSize()));
+        if (!image->readPixels(info, pixels.data(), info.minRowBytes(), 0, 0)) {
+            ImGui::TextDisabled("Preview unavailable");
+            return;
+        }
+
+        if (exportPreviewTexture_ == 0) {
+            glGenTextures(1, &exportPreviewTexture_);
+        }
+        glBindTexture(GL_TEXTURE_2D, exportPreviewTexture_);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            image->width(),
+            image->height(),
+            0,
+            GL_BGRA,
+            GL_UNSIGNED_BYTE,
+            pixels.data()
+        );
+        glBindTexture(GL_TEXTURE_2D, 0);
+        exportPreviewTextureWidth_ = image->width();
+        exportPreviewTextureHeight_ = image->height();
+        exportPreviewTextureData_ = data.get();
+    }
+
+    const float scale = std::min(
+        size.x / static_cast<float>(std::max(1, exportPreviewTextureWidth_)),
+        size.y / static_cast<float>(std::max(1, exportPreviewTextureHeight_))
+    );
+    const ImVec2 imageSize{
+        static_cast<float>(exportPreviewTextureWidth_) * scale,
+        static_cast<float>(exportPreviewTextureHeight_) * scale
+    };
+    ImGui::Image(
+        static_cast<ImTextureID>(static_cast<uintptr_t>(exportPreviewTexture_)),
+        imageSize
+    );
 }
 
 void Application::RenderPreferencesDialog() {
@@ -998,7 +1259,16 @@ void Application::RenderPreferencesDialog() {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(420.0f, 540.0f), ImGuiCond_Appearing);
+    ImGuiViewport *viewport = ImGui::GetMainViewport();
+    const ImVec2 dialogSize{viewport->WorkSize.x * 0.8f, viewport->WorkSize.y * 0.8f};
+    ImGui::SetNextWindowPos(
+        ImVec2{
+            viewport->WorkPos.x + (viewport->WorkSize.x - dialogSize.x) * 0.5f,
+            viewport->WorkPos.y + (viewport->WorkSize.y - dialogSize.y) * 0.5f
+        },
+        ImGuiCond_Appearing
+    );
+    ImGui::SetNextWindowSize(dialogSize, ImGuiCond_Appearing);
     ImGui::Begin("Preferences", &showPreferencesDialog_,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
 
@@ -1115,6 +1385,8 @@ void Application::ResetDefaultPreferences() {
 void Application::LoadPreferences() {
     std::ifstream file(PreferencesPath());
     if (!file) {
+        lastSavedWindowWidth_ = preferredWindowWidth_;
+        lastSavedWindowHeight_ = preferredWindowHeight_;
         return;
     }
 
@@ -1132,6 +1404,18 @@ void Application::LoadPreferences() {
         const std::string section = line.substr(0, dot);
         const std::string key = line.substr(dot + 1, equals - dot - 1);
         const std::string value = line.substr(equals + 1);
+
+        if (section == "window") {
+            try {
+                if (key == "width") {
+                    preferredWindowWidth_ = std::max(640, std::stoi(value));
+                } else if (key == "height") {
+                    preferredWindowHeight_ = std::max(480, std::stoi(value));
+                }
+            } catch (...) {
+            }
+            continue;
+        }
 
         ShapeType type = ShapeType::Rect;
         bool matched = false;
@@ -1169,6 +1453,8 @@ void Application::LoadPreferences() {
     }
 
     brushToolSize_ = shapePreferences_[ShapePreferenceIndex(ShapeType::Brush)].brushSize;
+    lastSavedWindowWidth_ = preferredWindowWidth_;
+    lastSavedWindowHeight_ = preferredWindowHeight_;
 }
 
 void Application::SavePreferences() const {
@@ -1181,6 +1467,8 @@ void Application::SavePreferences() const {
     }
 
     file << "# TCanvas preferences\n";
+    file << "window.width=" << preferredWindowWidth_ << "\n";
+    file << "window.height=" << preferredWindowHeight_ << "\n";
     for (ShapeType type: {ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
                          ShapeType::Text, ShapeType::Image, ShapeType::Brush}) {
         const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
@@ -1193,6 +1481,25 @@ void Application::SavePreferences() const {
         file << key << ".blur_radius=" << prefs.blurRadius << "\n";
         file << key << ".brush_size=" << prefs.brushSize << "\n";
     }
+}
+
+void Application::TrackWindowSizePreference() {
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window_, &width, &height);
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    if (width == lastSavedWindowWidth_ && height == lastSavedWindowHeight_) {
+        return;
+    }
+
+    preferredWindowWidth_ = width;
+    preferredWindowHeight_ = height;
+    lastSavedWindowWidth_ = width;
+    lastSavedWindowHeight_ = height;
+    SavePreferences();
 }
 
 Vec2 Application::ViewCenterWorld() const {
@@ -1425,6 +1732,9 @@ sk_sp<SkData> Application::EncodeSelectionPng(int width, int height) const {
 
     const auto &shapes = document_.Shapes();
     for (int i = static_cast<int>(shapes.size()) - 1; i >= 0; --i) {
+        if (!shapes[i].visible) {
+            continue;
+        }
         RenderShape(canvas, shapes[i]);
     }
     canvas->restore();
@@ -1470,7 +1780,7 @@ sk_sp<SkData> Application::EncodeSelectionPng(int width, int height) const {
         };
 
         for (const Shape &shape: shapes) {
-            if (!shape.blurBackground) {
+            if (!shape.visible || !shape.blurBackground) {
                 continue;
             }
 
@@ -1511,12 +1821,37 @@ void Application::OpenExportDialog() {
     }
 
     const Shape bounds = SelectionBounds();
-    exportWidth_ = std::max(1, static_cast<int>(std::ceil(bounds.size.x)));
-    exportHeight_ = std::max(1, static_cast<int>(std::ceil(bounds.size.y)));
-    cachedExportWidth_ = 0;
-    cachedExportHeight_ = 0;
-    cachedExportData_ = nullptr;
+    exportVariations_.clear();
+    exportVariations_.push_back({
+        std::max(1, static_cast<int>(std::ceil(bounds.size.x))),
+        std::max(1, static_cast<int>(std::ceil(bounds.size.y)))
+    });
+    activeExportVariation_ = 0;
+    exportPreviewTextureData_ = nullptr;
     showExportDialog_ = true;
+}
+
+sk_sp<SkData> Application::ExportVariationData(ExportVariation &variation) {
+    if (!variation.data || variation.cachedWidth != variation.width || variation.cachedHeight != variation.height) {
+        variation.width = std::max(1, variation.width);
+        variation.height = std::max(1, variation.height);
+        variation.data = EncodeSelectionPng(variation.width, variation.height);
+        variation.cachedWidth = variation.width;
+        variation.cachedHeight = variation.height;
+    }
+    return variation.data;
+}
+
+std::string Application::ExportVariantPath(const std::string &path, int width, int height, bool multiple) const {
+    if (!multiple) {
+        return path;
+    }
+
+    const std::filesystem::path original(path);
+    const std::string stem = original.stem().string();
+    const std::string ext = original.extension().empty() ? ".png" : original.extension().string();
+    const std::string filename = stem + "_" + std::to_string(width) + "x" + std::to_string(height) + ext;
+    return (original.parent_path() / filename).string();
 }
 
 bool Application::SaveDataToFile(const std::string &path, sk_sp<SkData> data) const {
@@ -1632,6 +1967,9 @@ std::vector<int> Application::ShapesInSelectionArea() const {
     std::vector<int> selected;
     const auto &shapes = document_.Shapes();
     for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+        if (!shapes[i].visible || shapes[i].locked) {
+            continue;
+        }
         const auto corners = GetShapeCorners(shapes[i]);
         float shapeLeft = view_.WorldToScreen(corners[0]).x;
         float shapeRight = shapeLeft;
@@ -1991,7 +2329,7 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
                 lineEnd == std::string::npos ? std::string::npos : lineEnd - lineStart
             );
             if (!line.empty()) {
-                canvas->drawString(line.c_str(), rect.left(), baseline, font, fill);
+                DrawTextWithFallback(canvas, line, rect.left(), baseline, font.getSize(), fill);
             }
             if (lineEnd == std::string::npos) {
                 break;
@@ -2073,7 +2411,7 @@ void Application::RenderBlurOverlays(SkCanvas *canvas, float dpr) {
     };
 
     for (const Shape &shape: document_.Shapes()) {
-        if (!shape.blurBackground) {
+        if (!shape.visible || !shape.blurBackground) {
             continue;
         }
 
@@ -2145,6 +2483,52 @@ void Application::RenderBrushPreview(SkCanvas *canvas, float dpr) {
     stroke.setStrokeWidth(1.0f * dpr);
     stroke.setColor(SkColorSetARGB(165, 235, 240, 248));
     canvas->drawCircle(center, radius, stroke);
+}
+
+void Application::RenderSelectionSizeHud(SkCanvas *canvas, float logicalWidth, float logicalHeight) {
+    if (document_.SelectedShapeIndices().empty()) {
+        return;
+    }
+
+    const Shape bounds = SelectionBounds();
+    char label[64] = {};
+    std::snprintf(
+        label,
+        sizeof(label),
+        "%d x %d",
+        static_cast<int>(std::round(bounds.size.x)),
+        static_cast<int>(std::round(bounds.size.y))
+    );
+
+    SkFont font(CanvasTypeface(), 12.0f);
+    SkPaint textPaint;
+    textPaint.setAntiAlias(true);
+    textPaint.setColor(SkColorSetARGB(225, 235, 238, 244));
+
+    SkRect textBounds;
+    font.measureText(label, std::strlen(label), SkTextEncoding::kUTF8, &textBounds);
+
+    constexpr float padX = 10.0f;
+    constexpr float padY = 7.0f;
+    const float width = textBounds.width() + padX * 2.0f;
+    const float height = 26.0f;
+    const float canvasRight = std::max(kLeftPanelWidth, logicalWidth - kRightPanelWidth);
+    const float x = canvasRight - width - 18.0f;
+    const float y = logicalHeight - height - 18.0f;
+
+    SkPaint bg;
+    bg.setAntiAlias(true);
+    bg.setColor(SkColorSetARGB(205, 22, 24, 28));
+    canvas->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(x, y, width, height), 6.0f, 6.0f), bg);
+
+    SkPaint border;
+    border.setAntiAlias(true);
+    border.setStyle(SkPaint::kStroke_Style);
+    border.setStrokeWidth(1.0f);
+    border.setColor(SkColorSetARGB(95, 220, 225, 235));
+    canvas->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(x, y, width, height), 6.0f, 6.0f), border);
+
+    canvas->drawString(label, x + padX, y + 17.0f, font, textPaint);
 }
 
 void Application::RenderGroupTransformer(SkCanvas *canvas) {
@@ -2294,6 +2678,9 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 
     const auto &shapes = document_.Shapes();
     for (int i = static_cast<int>(shapes.size()) - 1; i >= 0; --i) {
+        if (!shapes[i].visible) {
+            continue;
+        }
         RenderShape(canvas, shapes[i]);
     }
     canvas->restore();
@@ -2306,10 +2693,12 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
         RenderGroupTransformer(canvas);
         canvas->restore();
     } else if (const Shape *selectedShape = document_.SelectedShape()) {
-        canvas->save();
-        canvas->scale(dpr, dpr);
-        transformer_.Draw(canvas, *selectedShape, view_);
-        canvas->restore();
+        if (selectedShape->visible && !selectedShape->locked) {
+            canvas->save();
+            canvas->scale(dpr, dpr);
+            transformer_.Draw(canvas, *selectedShape, view_);
+            canvas->restore();
+        }
     }
 
     if (!snapGuides_.empty()) {
@@ -2342,6 +2731,10 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 
     RenderSelectionArea(canvas, dpr);
     RenderBrushPreview(canvas, dpr);
+    canvas->save();
+    canvas->scale(dpr, dpr);
+    RenderSelectionSizeHud(canvas, logicalWidth, logicalHeight);
+    canvas->restore();
 
     skia_.EndFrame();
 
@@ -2354,6 +2747,11 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
 }
 
 void Application::Shutdown() {
+    if (exportPreviewTexture_ != 0) {
+        glDeleteTextures(1, &exportPreviewTexture_);
+        exportPreviewTexture_ = 0;
+    }
+
     imgui_.Shutdown();
     skia_.Shutdown();
 
