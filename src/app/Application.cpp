@@ -1346,6 +1346,7 @@ void Application::RenderTextEditor() {
         TrackTextEditCursor,
         &textEditCursor_
     );
+    const bool deactivated = ImGui::IsItemDeactivated();
 
     ImGuiIO &io = ImGui::GetIO();
     if (submitted && (io.KeyShift || io.KeySuper)) {
@@ -1356,6 +1357,8 @@ void Application::RenderTextEditor() {
     shape->text = textEditBuffer_.data();
 
     if (submitted && !io.KeyShift && !io.KeySuper) {
+        FinishTextEditing();
+    } else if (deactivated) {
         FinishTextEditing();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         FinishTextEditing();
