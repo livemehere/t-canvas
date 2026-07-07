@@ -63,8 +63,8 @@ Layer actions:
 - Press `[` to move selected layers one step toward the back.
 - Press `Shift + ]` to move selected layers to the front.
 - Press `Shift + [` to move selected layers to the back.
-- Toggle visibility with the visibility button.
-- Toggle locking with the lock button.
+- Toggle selected layer visibility with `V` or the visibility button.
+- Toggle selected layer locking with `K` or the lock button.
 
 Locked layers cannot be selected from the canvas. Hidden layers are excluded from rendering, selection, blur, and
 export.

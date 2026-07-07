@@ -35,7 +35,10 @@ public:
     struct ShapePreferences {
         Color fill;
         Color border;
+        bool fillEnabled = false;
+        bool borderEnabled = true;
         float borderWidth = 3.0f;
+        float arrowHeadSize = 28.0f;
         float cornerRadius = 0.0f;
         bool blurBackground = false;
         float blurRadius = 3.5f;
@@ -63,12 +66,14 @@ private:
         int height = 1;
         int cachedWidth = 0;
         int cachedHeight = 0;
+        int cachedDocumentVersion = -1;
         sk_sp<SkData> data;
     };
 
     GLFWwindow *window_ = nullptr;
     GLFWcursor *defaultCursor_ = nullptr;
-    GLFWcursor *handCursor_ = nullptr;
+    GLFWcursor *grabCursor_ = nullptr;
+    GLFWcursor *grabbingCursor_ = nullptr;
     SkiaRenderer skia_;
     ImGuiLayer imgui_;
     CanvasDocument document_;
@@ -120,6 +125,7 @@ private:
     std::vector<DocumentSnapshot> undoStack_;
     std::vector<DocumentSnapshot> redoStack_;
     std::vector<SnapGuide> snapGuides_;
+    int documentVersion_ = 0;
 
     void HandleInput();
 
@@ -160,6 +166,10 @@ private:
 
     void ReorderSelectedShapes(bool towardFront, bool allTheWay);
 
+    void ToggleSelectedVisibility();
+
+    void ToggleSelectedLock();
+
     void ApplyPreferences(Shape &shape) const;
 
     void ResetDefaultPreferences();
@@ -193,6 +203,10 @@ private:
     void RestoreDocumentSnapshot(const DocumentSnapshot &snapshot);
 
     void PushHistory();
+
+    void MarkDocumentChanged();
+
+    void InvalidateExportCache();
 
     void Undo();
 

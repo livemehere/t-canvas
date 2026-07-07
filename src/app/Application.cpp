@@ -46,7 +46,89 @@ namespace {
 constexpr float kLeftPanelWidth = 240.0f;
 constexpr float kRightPanelWidth = 300.0f;
 constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
-constexpr Color kTransparentRed{1.0f, 0.22f, 0.20f, 0.0f};
+
+GLFWcursor *CreateAsciiCursor(const std::array<const char *, 24> &rows, int hotX, int hotY) {
+    constexpr int width = 24;
+    constexpr int height = 24;
+    std::array<unsigned char, width * height * 4> pixels{};
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const char pixel = rows[y][x];
+            const int offset = (y * width + x) * 4;
+            if (pixel == 'X') {
+                pixels[offset + 0] = 28;
+                pixels[offset + 1] = 30;
+                pixels[offset + 2] = 34;
+                pixels[offset + 3] = 255;
+            } else if (pixel == '.') {
+                pixels[offset + 0] = 248;
+                pixels[offset + 1] = 250;
+                pixels[offset + 2] = 252;
+                pixels[offset + 3] = 255;
+            }
+        }
+    }
+    GLFWimage image{width, height, pixels.data()};
+    return glfwCreateCursor(&image, hotX, hotY);
+}
+
+GLFWcursor *CreateGrabCursor() {
+    return CreateAsciiCursor({
+        "                        ",
+        "                        ",
+        "        .XX.            ",
+        "       .X..X.           ",
+        "       .X..X.           ",
+        "    .XX.X..X.XX.        ",
+        "   .X..XX..XX..X.       ",
+        "   .X............X.     ",
+        "   .X............X.     ",
+        "    .X...........X.     ",
+        "     .X..........X.     ",
+        "      .X........X.      ",
+        "       .X......X.       ",
+        "        .XXXXXX.        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        "
+    }, 11, 8);
+}
+
+GLFWcursor *CreateGrabbingCursor() {
+    return CreateAsciiCursor({
+        "                        ",
+        "                        ",
+        "                        ",
+        "     .XXXXXXXXXXXX.     ",
+        "    .X............X.    ",
+        "   .X..............X.   ",
+        "  .X................X.  ",
+        "  .X................X.  ",
+        "  .X................X.  ",
+        "   .X..............X.   ",
+        "    .X............X.    ",
+        "     .XXXXXXXXXXXX.     ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        ",
+        "                        "
+    }, 11, 7);
+}
 
 void GlfwErrorCallback(int error, const char *description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
@@ -192,6 +274,30 @@ const char *ToolLabel(Application::Tool tool) {
     return "";
 }
 
+const char *ToolShortcut(Application::Tool tool) {
+    switch (tool) {
+        case Application::Tool::Select:
+            return "S";
+        case Application::Tool::Pan:
+            return "P / Space";
+        case Application::Tool::Rect:
+            return "R";
+        case Application::Tool::Circle:
+            return "C";
+        case Application::Tool::Line:
+            return "L";
+        case Application::Tool::Arrow:
+            return "A";
+        case Application::Tool::Text:
+            return "T";
+        case Application::Tool::Image:
+            return "I";
+        case Application::Tool::Brush:
+            return "B";
+    }
+    return "";
+}
+
 bool IsLineTool(Application::Tool tool) {
     return tool == Application::Tool::Line || tool == Application::Tool::Arrow;
 }
@@ -275,32 +381,50 @@ void DrawPreferencePreview(ShapeType type, const Application::ShapePreferences &
 
     if (type == ShapeType::Circle) {
         const float radius = std::min(size.x, size.y) * 0.28f;
-        drawList->AddCircleFilled(center, radius, fill, 48);
-        drawList->AddCircle(center, radius, stroke, 48, strokeWidth);
+        if (prefs.fillEnabled) {
+            drawList->AddCircleFilled(center, radius, fill, 48);
+        }
+        if (prefs.borderEnabled) {
+            drawList->AddCircle(center, radius, stroke, 48, strokeWidth);
+        }
     } else if (type == ShapeType::Line || type == ShapeType::Arrow) {
         const ImVec2 a{pos.x + size.x * 0.22f, center.y};
         const ImVec2 b{pos.x + size.x * 0.78f, center.y};
-        drawList->AddLine(a, b, stroke, strokeWidth);
-        if (type == ShapeType::Arrow) {
+        if (prefs.borderEnabled) {
+            drawList->AddLine(a, b, stroke, strokeWidth);
+        }
+        if (type == ShapeType::Arrow && prefs.borderEnabled) {
+            const float arrowLength = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.85f;
+            const float arrowHalfHeight = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.28f;
             drawList->AddTriangleFilled(
                 b,
-                ImVec2{b.x - 17.0f, b.y - 6.0f},
-                ImVec2{b.x - 17.0f, b.y + 6.0f},
+                ImVec2{b.x - arrowLength, b.y - arrowHalfHeight},
+                ImVec2{b.x - arrowLength, b.y + arrowHalfHeight},
                 stroke
             );
         }
     } else if (type == ShapeType::Text) {
-        drawList->AddText(ImVec2{pos.x + 18.0f, center.y - 9.0f}, stroke, "Text");
+        if (prefs.fillEnabled) {
+            drawList->AddText(ImVec2{pos.x + 18.0f, center.y - 9.0f}, fill, "Text");
+        }
     } else if (type == ShapeType::Brush) {
         const float radius = std::min(size.x, size.y) * 0.22f * (prefs.brushSize / 52.0f);
-        drawList->AddCircleFilled(center, Clamp(radius, 8.0f, 34.0f), fill, 48);
-        drawList->AddCircle(center, Clamp(radius, 8.0f, 34.0f), stroke, 48, std::max(1.0f, strokeWidth));
+        if (prefs.fillEnabled) {
+            drawList->AddCircleFilled(center, Clamp(radius, 8.0f, 34.0f), fill, 48);
+        }
+        if (prefs.borderEnabled) {
+            drawList->AddCircle(center, Clamp(radius, 8.0f, 34.0f), stroke, 48, std::max(1.0f, strokeWidth));
+        }
     } else {
         const ImVec2 rectMin{pos.x + size.x * 0.22f, pos.y + size.y * 0.25f};
         const ImVec2 rectMax{pos.x + size.x * 0.78f, pos.y + size.y * 0.75f};
         const float radius = type == ShapeType::Rect || type == ShapeType::Image ? std::min(prefs.cornerRadius * 0.25f, 18.0f) : 0.0f;
-        drawList->AddRectFilled(rectMin, rectMax, fill, radius);
-        drawList->AddRect(rectMin, rectMax, stroke, radius, 0, strokeWidth);
+        if (prefs.fillEnabled || type == ShapeType::Image) {
+            drawList->AddRectFilled(rectMin, rectMax, fill, radius);
+        }
+        if (prefs.borderEnabled) {
+            drawList->AddRect(rectMin, rectMax, stroke, radius, 0, strokeWidth);
+        }
         if (type == ShapeType::Image) {
             drawList->AddLine(
                 ImVec2{rectMin.x + 12.0f, rectMax.y - 14.0f},
@@ -451,8 +575,13 @@ void ApplyBlurShape(
     const float sigma = std::max(0.0f, shape.blurRadius) * scale;
     blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
 
+    SkPaint clearPaint;
+    clearPaint.setAntiAlias(true);
+    clearPaint.setBlendMode(SkBlendMode::kClear);
+
     canvas->save();
     canvas->clipPath(mask, true);
+    canvas->drawPath(mask, clearPaint);
     canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
     canvas->restore();
 }
@@ -482,7 +611,8 @@ bool Application::Init() {
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
     defaultCursor_ = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
-    handCursor_ = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+    grabCursor_ = CreateGrabCursor();
+    grabbingCursor_ = CreateGrabbingCursor();
 
     if (!skia_.Init()) {
         return false;
@@ -521,7 +651,13 @@ void Application::HandleInput() {
     ImGuiIO &io = ImGui::GetIO();
     spacePanActive_ = ImGui::IsKeyDown(ImGuiKey_Space);
     const bool panToolActive = activeTool_ == Tool::Pan || spacePanActive_;
-    glfwSetCursor(window_, panToolActive && handCursor_ ? handCursor_ : defaultCursor_);
+    if (isPanningCanvas_ && grabbingCursor_) {
+        glfwSetCursor(window_, grabbingCursor_);
+    } else if (panToolActive && grabCursor_) {
+        glfwSetCursor(window_, grabCursor_);
+    } else {
+        glfwSetCursor(window_, defaultCursor_);
+    }
 
     HandleShortcuts();
 
@@ -620,19 +756,45 @@ void Application::HandleInput() {
                     shape->text.clear();
                 }
                 BeginTextEditing(document_.SelectedShapeIndex());
-                activeTool_ = Tool::Select;
             }
             return;
         }
 
         DragMode mode = DragMode::None;
         Shape *selectedShape = document_.SelectedShape();
+        int hitShapeIndex = -1;
+        const auto &shapes = document_.Shapes();
+        for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+            if (!shapes[i].visible || shapes[i].locked) {
+                continue;
+            }
+            if (PointInShape(mouseWorld, shapes[i])) {
+                hitShapeIndex = i;
+                break;
+            }
+        }
+
+        if (io.KeyShift && hitShapeIndex >= 0) {
+            std::vector<int> selected = document_.SelectedShapeIndices();
+            const auto found = std::find(selected.begin(), selected.end(), hitShapeIndex);
+            if (found == selected.end()) {
+                selected.push_back(hitShapeIndex);
+            } else if (selected.size() > 1) {
+                selected.erase(found);
+            }
+            document_.SelectShapes(std::move(selected));
+            transformer_.EndDrag();
+            return;
+        }
 
         const bool hasMultiSelection = document_.SelectedShapeIndices().size() > 1;
         if (hasMultiSelection) {
             groupBounds_ = SelectionBounds();
             mode = transformer_.HitTest(mouse, groupBounds_, view_);
             if (mode == DragMode::Rotate) {
+                mode = DragMode::None;
+            }
+            if (mode == DragMode::Move && hitShapeIndex >= 0 && !document_.IsShapeSelected(hitShapeIndex)) {
                 mode = DragMode::None;
             }
             if (mode != DragMode::None) {
@@ -643,20 +805,16 @@ void Application::HandleInput() {
 
         if (selectedShape && !hasMultiSelection) {
             mode = transformer_.HitTest(mouse, *selectedShape, view_);
+            if (mode == DragMode::Move && hitShapeIndex >= 0 && hitShapeIndex != document_.SelectedShapeIndex()) {
+                mode = DragMode::None;
+            }
         }
 
         if (mode == DragMode::None) {
-            const auto &shapes = document_.Shapes();
-            for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
-                if (!shapes[i].visible || shapes[i].locked) {
-                    continue;
-                }
-                if (PointInShape(mouseWorld, shapes[i])) {
-                    document_.SelectShape(i);
-                    selectedShape = document_.SelectedShape();
-                    mode = DragMode::Move;
-                    break;
-                }
+            if (hitShapeIndex >= 0) {
+                document_.SelectShape(hitShapeIndex);
+                selectedShape = document_.SelectedShape();
+                mode = DragMode::Move;
             }
         }
 
@@ -766,7 +924,11 @@ void Application::HandleShortcuts() {
         return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_V)) {
+        ToggleSelectedVisibility();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_K)) {
+        ToggleSelectedLock();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_S)) {
         activeTool_ = Tool::Select;
     } else if (ImGui::IsKeyPressed(ImGuiKey_P)) {
         activeTool_ = Tool::Pan;
@@ -782,7 +944,6 @@ void Application::HandleShortcuts() {
         activeTool_ = Tool::Text;
     } else if (ImGui::IsKeyPressed(ImGuiKey_I)) {
         AddShapeFromTool(Tool::Image);
-        activeTool_ = Tool::Select;
     } else if (ImGui::IsKeyPressed(ImGuiKey_B)) {
         activeTool_ = Tool::Brush;
     }
@@ -837,6 +998,9 @@ void Application::RenderPanels() {
             }
             transformer_.EndDrag();
         }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Select layer\nShift + Click: select range");
+        }
         if (ImGui::BeginDragDropSource()) {
             ImGui::SetDragDropPayload("SHAPE_INDEX", &i, sizeof(int));
             ImGui::TextUnformatted(layerShape.name.c_str());
@@ -862,7 +1026,7 @@ void Application::RenderPanels() {
             }
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(layerShape.visible ? "Hide" : "Show");
+            ImGui::SetTooltip("%s\nShortcut: V", layerShape.visible ? "Hide" : "Show");
         }
         ImGui::SameLine(rowStartX + labelWidth + buttonGap + buttonSize + buttonGap);
         if (ImGui::Button(layerShape.locked ? "L" : "U", ImVec2(buttonSize, 22.0f))) {
@@ -874,7 +1038,7 @@ void Application::RenderPanels() {
             }
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(layerShape.locked ? "Unlock" : "Lock");
+            ImGui::SetTooltip("%s\nShortcut: K", layerShape.locked ? "Unlock" : "Lock");
         }
         ImGui::PopID();
     }
@@ -894,6 +1058,8 @@ void Application::RenderPanels() {
 
         Color fill = document_.Shapes()[selectedIndices.front()].fill;
         Color border = document_.Shapes()[selectedIndices.front()].border;
+        bool fillEnabled = document_.Shapes()[selectedIndices.front()].fillEnabled;
+        bool borderEnabled = document_.Shapes()[selectedIndices.front()].borderEnabled;
         float borderWidth = document_.Shapes()[selectedIndices.front()].borderWidth;
         float radius = document_.Shapes()[selectedIndices.front()].cornerRadius;
         bool blurBackground = document_.Shapes()[selectedIndices.front()].blurBackground;
@@ -909,8 +1075,14 @@ void Application::RenderPanels() {
         if (ImGui::ColorEdit4("Fill", &fill.r)) {
             applySelected([&](Shape &target) { target.fill = fill; });
         }
+        if (ImGui::Checkbox("Show Fill", &fillEnabled)) {
+            applySelected([&](Shape &target) { target.fillEnabled = fillEnabled; });
+        }
         if (ImGui::ColorEdit4("Border", &border.r)) {
             applySelected([&](Shape &target) { target.border = border; });
+        }
+        if (ImGui::Checkbox("Show Border", &borderEnabled)) {
+            applySelected([&](Shape &target) { target.borderEnabled = borderEnabled; });
         }
         if (ImGui::DragFloat("Border Width", &borderWidth, 0.25f, 0.0f, 100.0f)) {
             borderWidth = Clamp(borderWidth, 0.0f, 100.0f);
@@ -970,12 +1142,20 @@ void Application::RenderPanels() {
                 shape->text = contentBuffer.data();
             }
         }
+        ImGui::Checkbox("Show Fill", &shape->fillEnabled);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::ColorEdit4("Fill", &shape->fill.r);
+        captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        ImGui::Checkbox("Show Border", &shape->borderEnabled);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::ColorEdit4("Border", &shape->border.r);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         ImGui::DragFloat("Border Width", &shape->borderWidth, 0.25f, 0.0f, 100.0f);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        if (shape->type == ShapeType::Arrow) {
+            ImGui::DragFloat("Arrow Head", &shape->arrowHeadSize, 0.5f, 6.0f, 120.0f);
+            captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
+        }
         ImGui::DragFloat("Radius", &shape->cornerRadius, 0.5f, 0.0f, 1000.0f);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
@@ -996,6 +1176,7 @@ void Application::RenderPanels() {
         shape->size.x = Clamp(shape->size.x, 20.0f, 4000.0f);
         shape->size.y = Clamp(shape->size.y, 20.0f, 4000.0f);
         shape->borderWidth = Clamp(shape->borderWidth, 0.0f, 100.0f);
+        shape->arrowHeadSize = Clamp(shape->arrowHeadSize, 6.0f, 120.0f);
         shape->cornerRadius = Clamp(shape->cornerRadius, 0.0f, 1000.0f);
         shape->blurRadius = Clamp(shape->blurRadius, 0.0f, 80.0f);
         shape->brushSize = Clamp(shape->brushSize, 4.0f, 240.0f);
@@ -1008,7 +1189,7 @@ void Application::RenderPanels() {
 
 void Application::RenderToolbar() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float toolbarWidth = 924.0f;
+    constexpr float toolbarWidth = 890.0f;
     constexpr float toolbarHeight = 52.0f;
     const ImVec2 pos{
         viewport->WorkPos.x + (viewport->WorkSize.x - toolbarWidth) * 0.5f,
@@ -1033,11 +1214,13 @@ void Application::RenderToolbar() {
         if (ImGui::Button(label, ImVec2(68.0f, 32.0f))) {
             if (tool == Tool::Image) {
                 AddShapeFromTool(tool);
-                activeTool_ = Tool::Select;
             } else {
                 activeTool_ = tool;
             }
             transformer_.EndDrag();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s (%s)", label, ToolShortcut(tool));
         }
         if (selected) {
             ImGui::PopStyleColor();
@@ -1059,9 +1242,15 @@ void Application::RenderToolbar() {
     if (ImGui::Button("Export", ImVec2(74.0f, 32.0f))) {
         OpenExportDialog();
     }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Export selection");
+    }
     ImGui::SameLine();
     if (ImGui::Button("Settings", ImVec2(76.0f, 32.0f))) {
         showPreferencesDialog_ = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Settings");
     }
 
     ImGui::End();
@@ -1387,9 +1576,14 @@ void Application::RenderPreferencesDialog() {
         ImGui::PushID(ShapePreferenceKey(type));
         if (ImGui::CollapsingHeader(ShapePreferenceLabel(type), ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::BeginGroup();
+            changed = ImGui::Checkbox("Show Fill", &prefs.fillEnabled) || changed;
             changed = ImGui::ColorEdit4("Fill", &prefs.fill.r) || changed;
+            changed = ImGui::Checkbox("Show Stroke", &prefs.borderEnabled) || changed;
             changed = ImGui::ColorEdit4("Stroke", &prefs.border.r) || changed;
             changed = ImGui::DragFloat("Stroke Width", &prefs.borderWidth, 0.25f, 0.0f, 100.0f) || changed;
+            if (type == ShapeType::Arrow) {
+                changed = ImGui::DragFloat("Arrow Head", &prefs.arrowHeadSize, 0.5f, 6.0f, 120.0f) || changed;
+            }
             if (type == ShapeType::Rect || type == ShapeType::Image) {
                 changed = ImGui::DragFloat("Corner Radius", &prefs.cornerRadius, 0.5f, 0.0f, 1000.0f) || changed;
             }
@@ -1400,6 +1594,7 @@ void Application::RenderPreferencesDialog() {
             changed = ImGui::DragFloat("Blur Radius", &prefs.blurRadius, 0.25f, 0.0f, 80.0f) || changed;
 
             prefs.borderWidth = Clamp(prefs.borderWidth, 0.0f, 100.0f);
+            prefs.arrowHeadSize = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f);
             prefs.cornerRadius = Clamp(prefs.cornerRadius, 0.0f, 1000.0f);
             prefs.blurRadius = Clamp(prefs.blurRadius, 0.0f, 80.0f);
             prefs.brushSize = Clamp(prefs.brushSize, 4.0f, 240.0f);
@@ -1440,8 +1635,10 @@ std::string Application::PreferencesPath() const {
 
 void Application::ResetDefaultPreferences() {
     ShapePreferences rect;
-    rect.fill = kTransparentRed;
+    rect.fill = kAccentRed;
     rect.border = kAccentRed;
+    rect.fillEnabled = false;
+    rect.borderEnabled = true;
     rect.borderWidth = 3.0f;
     rect.cornerRadius = 0.0f;
 
@@ -1452,17 +1649,23 @@ void Application::ResetDefaultPreferences() {
     line.borderWidth = 4.0f;
 
     ShapePreferences arrow = line;
+    arrow.arrowHeadSize = 28.0f;
 
     ShapePreferences text = rect;
     text.fill = kAccentRed;
-    text.border = kTransparentRed;
+    text.border = kAccentRed;
+    text.fillEnabled = true;
+    text.borderEnabled = false;
     text.borderWidth = 0.0f;
 
     ShapePreferences image = rect;
     image.fill = {1.0f, 1.0f, 1.0f, 1.0f};
+    image.fillEnabled = true;
     image.borderWidth = 3.0f;
 
     ShapePreferences brush = rect;
+    brush.fillEnabled = false;
+    brush.borderEnabled = false;
     brush.borderWidth = 0.0f;
     brush.blurBackground = true;
     brush.blurRadius = 14.0f;
@@ -1531,10 +1734,16 @@ void Application::LoadPreferences() {
         try {
             if (key == "fill") {
                 ParseColor(value, prefs.fill);
+            } else if (key == "fill_enabled") {
+                prefs.fillEnabled = value == "1";
             } else if (key == "stroke") {
                 ParseColor(value, prefs.border);
+            } else if (key == "stroke_enabled") {
+                prefs.borderEnabled = value == "1";
             } else if (key == "stroke_width") {
                 prefs.borderWidth = std::stof(value);
+            } else if (key == "arrow_head") {
+                prefs.arrowHeadSize = std::stof(value);
             } else if (key == "radius") {
                 prefs.cornerRadius = std::stof(value);
             } else if (key == "blur") {
@@ -1570,8 +1779,11 @@ void Application::SavePreferences() const {
         const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
         const char *key = ShapePreferenceKey(type);
         file << key << ".fill=" << FormatColor(prefs.fill) << "\n";
+        file << key << ".fill_enabled=" << (prefs.fillEnabled ? 1 : 0) << "\n";
         file << key << ".stroke=" << FormatColor(prefs.border) << "\n";
+        file << key << ".stroke_enabled=" << (prefs.borderEnabled ? 1 : 0) << "\n";
         file << key << ".stroke_width=" << prefs.borderWidth << "\n";
+        file << key << ".arrow_head=" << prefs.arrowHeadSize << "\n";
         file << key << ".radius=" << prefs.cornerRadius << "\n";
         file << key << ".blur=" << (prefs.blurBackground ? 1 : 0) << "\n";
         file << key << ".blur_radius=" << prefs.blurRadius << "\n";
@@ -1708,11 +1920,54 @@ void Application::ReorderSelectedShapes(bool towardFront, bool allTheWay) {
     transformer_.EndDrag();
 }
 
+void Application::ToggleSelectedVisibility() {
+    const std::vector<int> selected = document_.SelectedShapeIndices();
+    if (selected.empty()) {
+        return;
+    }
+
+    const auto &shapes = document_.Shapes();
+    const bool nextVisible = std::any_of(selected.begin(), selected.end(), [&](int index) {
+        return index >= 0 && index < static_cast<int>(shapes.size()) && !shapes[index].visible;
+    });
+
+    PushHistory();
+    for (int index: selected) {
+        if (index >= 0 && index < static_cast<int>(document_.Shapes().size())) {
+            document_.Shapes()[index].visible = nextVisible;
+        }
+    }
+    transformer_.EndDrag();
+}
+
+void Application::ToggleSelectedLock() {
+    const std::vector<int> selected = document_.SelectedShapeIndices();
+    if (selected.empty()) {
+        return;
+    }
+
+    const auto &shapes = document_.Shapes();
+    const bool nextLocked = std::any_of(selected.begin(), selected.end(), [&](int index) {
+        return index >= 0 && index < static_cast<int>(shapes.size()) && !shapes[index].locked;
+    });
+
+    PushHistory();
+    for (int index: selected) {
+        if (index >= 0 && index < static_cast<int>(document_.Shapes().size())) {
+            document_.Shapes()[index].locked = nextLocked;
+        }
+    }
+    transformer_.EndDrag();
+}
+
 void Application::ApplyPreferences(Shape &shape) const {
     const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(shape.type)];
     shape.fill = prefs.fill;
     shape.border = prefs.border;
+    shape.fillEnabled = prefs.fillEnabled;
+    shape.borderEnabled = prefs.borderEnabled;
     shape.borderWidth = prefs.borderWidth;
+    shape.arrowHeadSize = prefs.arrowHeadSize;
     shape.cornerRadius = prefs.cornerRadius;
     shape.blurBackground = prefs.blurBackground;
     shape.blurRadius = prefs.blurRadius;
@@ -1928,7 +2183,7 @@ sk_sp<SkData> Application::EncodeSelectionPng(int width, int height) const {
 
     const auto &shapes = document_.Shapes();
     for (int i = static_cast<int>(shapes.size()) - 1; i >= 0; --i) {
-        if (!shapes[i].visible) {
+        if (!shapes[i].visible || std::find(selected.begin(), selected.end(), i) == selected.end()) {
             continue;
         }
         if (shapes[i].blurBackground) {
@@ -1973,12 +2228,16 @@ void Application::OpenExportDialog() {
 }
 
 sk_sp<SkData> Application::ExportVariationData(ExportVariation &variation) {
-    if (!variation.data || variation.cachedWidth != variation.width || variation.cachedHeight != variation.height) {
+    if (!variation.data ||
+        variation.cachedWidth != variation.width ||
+        variation.cachedHeight != variation.height ||
+        variation.cachedDocumentVersion != documentVersion_) {
         variation.width = std::max(1, variation.width);
         variation.height = std::max(1, variation.height);
         variation.data = EncodeSelectionPng(variation.width, variation.height);
         variation.cachedWidth = variation.width;
         variation.cachedHeight = variation.height;
+        variation.cachedDocumentVersion = documentVersion_;
     }
     return variation.data;
 }
@@ -2022,6 +2281,7 @@ void Application::RestoreDocumentSnapshot(const DocumentSnapshot &snapshot) {
     isSelectingArea_ = false;
     groupTransformActive_ = false;
     editingTextIndex_ = -1;
+    MarkDocumentChanged();
 }
 
 void Application::PushHistory() {
@@ -2031,6 +2291,22 @@ void Application::PushHistory() {
     if (undoStack_.size() > maxHistory) {
         undoStack_.erase(undoStack_.begin());
     }
+    MarkDocumentChanged();
+}
+
+void Application::MarkDocumentChanged() {
+    ++documentVersion_;
+    InvalidateExportCache();
+}
+
+void Application::InvalidateExportCache() {
+    for (ExportVariation &variation: exportVariations_) {
+        variation.data = nullptr;
+        variation.cachedWidth = 0;
+        variation.cachedHeight = 0;
+        variation.cachedDocumentVersion = -1;
+    }
+    exportPreviewTextureData_ = nullptr;
 }
 
 void Application::Undo() {
@@ -2247,7 +2523,6 @@ void Application::UpdateLineDrawing(Vec2 endWorld) {
 
 void Application::FinishLineDrawing() {
     isDrawingLine_ = false;
-    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
@@ -2289,7 +2564,6 @@ void Application::UpdateBoxDrawing(Vec2 endWorld) {
 
 void Application::FinishBoxDrawing() {
     isDrawingBox_ = false;
-    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
@@ -2327,7 +2601,6 @@ void Application::UpdateBrushStroke(Vec2 world) {
 
 void Application::FinishBrushStroke() {
     isDrawingBrush_ = false;
-    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
@@ -2438,14 +2711,20 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
     border.setColor(ToSkColor(shape.border));
 
     if (shape.type == ShapeType::Circle) {
-        canvas->drawOval(rect, fill);
-        if (shape.borderWidth > 0.0f) {
+        if (shape.fillEnabled) {
+            canvas->drawOval(rect, fill);
+        }
+        if (shape.borderEnabled && shape.borderWidth > 0.0f) {
             canvas->drawOval(rect, border);
         }
     } else if (shape.type == ShapeType::Line || shape.type == ShapeType::Arrow) {
+        if (!shape.borderEnabled || shape.borderWidth <= 0.0f) {
+            canvas->restore();
+            return;
+        }
         const float halfWidth = shape.size.x * 0.5f;
-        constexpr float arrowLength = 18.0f;
-        constexpr float arrowHalfHeight = 4.8f;
+        const float arrowLength = Clamp(shape.arrowHeadSize, 6.0f, 120.0f);
+        const float arrowHalfHeight = arrowLength * 0.32f;
         const float lineEnd = shape.type == ShapeType::Arrow ? halfWidth - arrowLength + 1.0f : halfWidth;
         canvas->drawLine(-halfWidth, 0.0f, lineEnd, 0.0f, border);
         if (shape.type == ShapeType::Arrow) {
@@ -2469,7 +2748,7 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
                 lineStart,
                 lineEnd == std::string::npos ? std::string::npos : lineEnd - lineStart
             );
-            if (!line.empty()) {
+            if (shape.fillEnabled && !line.empty()) {
                 DrawTextWithFallback(canvas, line, rect.left(), baseline, font.getSize(), fill);
             }
             if (lineEnd == std::string::npos) {
@@ -2488,13 +2767,15 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
             }
             canvas->drawImageRect(shape.image, rect, SkSamplingOptions(), &fill);
             canvas->restore();
-        } else if (radius > 0.0f) {
-            canvas->drawRRect(SkRRect::MakeRectXY(rect, radius, radius), fill);
-        } else {
-            canvas->drawRect(rect, fill);
+        } else if (shape.fillEnabled) {
+            if (radius > 0.0f) {
+                canvas->drawRRect(SkRRect::MakeRectXY(rect, radius, radius), fill);
+            } else {
+                canvas->drawRect(rect, fill);
+            }
         }
 
-        if (shape.borderWidth > 0.0f) {
+        if (shape.borderEnabled && shape.borderWidth > 0.0f) {
             if (radius > 0.0f) {
                 canvas->drawRRect(SkRRect::MakeRectXY(rect, radius, radius), border);
             } else {
@@ -2835,9 +3116,13 @@ void Application::Shutdown() {
     imgui_.Shutdown();
     skia_.Shutdown();
 
-    if (handCursor_) {
-        glfwDestroyCursor(handCursor_);
-        handCursor_ = nullptr;
+    if (grabbingCursor_) {
+        glfwDestroyCursor(grabbingCursor_);
+        grabbingCursor_ = nullptr;
+    }
+    if (grabCursor_) {
+        glfwDestroyCursor(grabCursor_);
+        grabCursor_ = nullptr;
     }
     if (defaultCursor_) {
         glfwDestroyCursor(defaultCursor_);

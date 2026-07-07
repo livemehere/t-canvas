@@ -33,7 +33,10 @@ struct Shape {
     float rotation = 0.0f;
     float cornerRadius = 0.0f;
     float borderWidth = 3.0f;
-    Color fill{1.0f, 0.22f, 0.20f, 0.0f};
+    float arrowHeadSize = 28.0f;
+    bool fillEnabled = false;
+    bool borderEnabled = true;
+    Color fill{1.0f, 0.22f, 0.20f, 1.0f};
     Color border{1.0f, 0.22f, 0.20f, 1.0f};
     bool visible = true;
     bool locked = false;
