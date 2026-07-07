@@ -945,6 +945,7 @@ void Application::HandleShortcuts() {
         activeTool_ = Tool::Text;
     } else if (ImGui::IsKeyPressed(ImGuiKey_I)) {
         AddShapeFromTool(Tool::Image);
+        activeTool_ = Tool::Select;
     } else if (ImGui::IsKeyPressed(ImGuiKey_B)) {
         activeTool_ = Tool::Brush;
     }
@@ -1215,6 +1216,7 @@ void Application::RenderToolbar() {
         if (ImGui::Button(label, ImVec2(68.0f, 32.0f))) {
             if (tool == Tool::Image) {
                 AddShapeFromTool(tool);
+                activeTool_ = Tool::Select;
             } else {
                 activeTool_ = tool;
             }
@@ -1334,6 +1336,21 @@ void Application::RenderTextEditor() {
         focusTextEditor_ = false;
     }
 
+    ImGuiIO &io = ImGui::GetIO();
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+        if (io.KeyShift) {
+            InsertTextEditorNewline();
+            shape->text = textEditBuffer_.data();
+            focusTextEditor_ = true;
+        } else {
+            FinishTextEditing();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+        ImGui::End();
+        return;
+    }
+
     const ImGuiInputTextFlags flags =
         ImGuiInputTextFlags_EnterReturnsTrue |
         ImGuiInputTextFlags_CallbackAlways;
@@ -1348,7 +1365,6 @@ void Application::RenderTextEditor() {
     );
     const bool deactivated = ImGui::IsItemDeactivated();
 
-    ImGuiIO &io = ImGui::GetIO();
     if (submitted && io.KeyShift) {
         InsertTextEditorNewline();
         focusTextEditor_ = true;
@@ -2529,6 +2545,7 @@ void Application::UpdateLineDrawing(Vec2 endWorld) {
 
 void Application::FinishLineDrawing() {
     isDrawingLine_ = false;
+    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
@@ -2570,6 +2587,7 @@ void Application::UpdateBoxDrawing(Vec2 endWorld) {
 
 void Application::FinishBoxDrawing() {
     isDrawingBox_ = false;
+    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
@@ -2607,6 +2625,7 @@ void Application::UpdateBrushStroke(Vec2 world) {
 
 void Application::FinishBrushStroke() {
     isDrawingBrush_ = false;
+    activeTool_ = Tool::Select;
     transformer_.EndDrag();
 }
 
