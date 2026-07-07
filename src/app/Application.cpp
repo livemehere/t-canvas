@@ -16,6 +16,7 @@
 #include <utility>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <skia/core/SkCanvas.h>
 #include <skia/core/SkColor.h>
 #include <skia/core/SkData.h>
@@ -1335,7 +1336,6 @@ void Application::RenderTextEditor() {
 
     const ImGuiInputTextFlags flags =
         ImGuiInputTextFlags_EnterReturnsTrue |
-        ImGuiInputTextFlags_CtrlEnterForNewLine |
         ImGuiInputTextFlags_CallbackAlways;
     const bool submitted = ImGui::InputTextMultiline(
         "##TextEdit",
@@ -1349,14 +1349,14 @@ void Application::RenderTextEditor() {
     const bool deactivated = ImGui::IsItemDeactivated();
 
     ImGuiIO &io = ImGui::GetIO();
-    if (submitted && (io.KeyShift || io.KeySuper)) {
+    if (submitted && io.KeyShift) {
         InsertTextEditorNewline();
         focusTextEditor_ = true;
     }
 
     shape->text = textEditBuffer_.data();
 
-    if (submitted && !io.KeyShift && !io.KeySuper) {
+    if (submitted && !io.KeyShift) {
         FinishTextEditing();
     } else if (deactivated) {
         FinishTextEditing();
@@ -2477,10 +2477,13 @@ void Application::FinishTextEditing() {
     Shape *shape = document_.SelectedShape();
     if (shape && editingTextIndex_ == document_.SelectedShapeIndex() && shape->type == ShapeType::Text) {
         shape->text = textEditBuffer_.data();
+        activeTool_ = Tool::Select;
     }
     editingTextIndex_ = -1;
     textEditCursor_ = 0;
     focusTextEditor_ = false;
+    ImGui::ClearActiveID();
+    ImGui::SetWindowFocus(nullptr);
 }
 
 void Application::InsertTextEditorNewline() {
