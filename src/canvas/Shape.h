@@ -41,8 +41,8 @@ struct Shape {
     bool visible = true;
     bool locked = false;
     bool blurBackground = false;
-    float blurRadius = 12.0f;
-    float brushSize = 44.0f;
+    float blurRadius = 5.0f;
+    float brushSize = 4.0f;
     std::string text = "Text";
     std::string imagePath;
     std::vector<Vec2> brushPoints;

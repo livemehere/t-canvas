@@ -44,548 +44,553 @@
 #include "../platform/FileDialog.h"
 
 namespace {
-constexpr float kLeftPanelWidth = 240.0f;
-constexpr float kRightPanelWidth = 300.0f;
-constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
+    constexpr float kLeftPanelWidth = 240.0f;
+    constexpr float kRightPanelWidth = 300.0f;
+    constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
 
-GLFWcursor *CreateAsciiCursor(const std::array<const char *, 24> &rows, int hotX, int hotY) {
-    constexpr int width = 24;
-    constexpr int height = 24;
-    std::array<unsigned char, width * height * 4> pixels{};
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const char pixel = rows[y][x];
-            const int offset = (y * width + x) * 4;
-            if (pixel == 'X') {
-                pixels[offset + 0] = 28;
-                pixels[offset + 1] = 30;
-                pixels[offset + 2] = 34;
-                pixels[offset + 3] = 255;
-            } else if (pixel == '.') {
-                pixels[offset + 0] = 248;
-                pixels[offset + 1] = 250;
-                pixels[offset + 2] = 252;
-                pixels[offset + 3] = 255;
-            }
-        }
-    }
-    GLFWimage image{width, height, pixels.data()};
-    return glfwCreateCursor(&image, hotX, hotY);
-}
-
-GLFWcursor *CreateGrabCursor() {
-    return CreateAsciiCursor({
-        "                        ",
-        "                        ",
-        "        .XX.            ",
-        "       .X..X.           ",
-        "       .X..X.           ",
-        "    .XX.X..X.XX.        ",
-        "   .X..XX..XX..X.       ",
-        "   .X............X.     ",
-        "   .X............X.     ",
-        "    .X...........X.     ",
-        "     .X..........X.     ",
-        "      .X........X.      ",
-        "       .X......X.       ",
-        "        .XXXXXX.        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        "
-    }, 11, 8);
-}
-
-GLFWcursor *CreateGrabbingCursor() {
-    return CreateAsciiCursor({
-        "                        ",
-        "                        ",
-        "                        ",
-        "     .XXXXXXXXXXXX.     ",
-        "    .X............X.    ",
-        "   .X..............X.   ",
-        "  .X................X.  ",
-        "  .X................X.  ",
-        "  .X................X.  ",
-        "   .X..............X.   ",
-        "    .X............X.    ",
-        "     .XXXXXXXXXXXX.     ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        ",
-        "                        "
-    }, 11, 7);
-}
-
-void GlfwErrorCallback(int error, const char *description) {
-    std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
-}
-
-SkColor ToSkColor(Color color) {
-    return SkColorSetARGB(
-        static_cast<U8CPU>(Clamp(color.a, 0.0f, 1.0f) * 255.0f),
-        static_cast<U8CPU>(Clamp(color.r, 0.0f, 1.0f) * 255.0f),
-        static_cast<U8CPU>(Clamp(color.g, 0.0f, 1.0f) * 255.0f),
-        static_cast<U8CPU>(Clamp(color.b, 0.0f, 1.0f) * 255.0f)
-    );
-}
-
-sk_sp<SkTypeface> CanvasTypeface() {
-    static sk_sp<SkTypeface> typeface = [] {
-        sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
-        if (fontMgr) {
-            for (const char *family: {"Apple SD Gothic Neo", "SF Pro Text", "Helvetica Neue", "Helvetica"}) {
-                sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyle(family, SkFontStyle::Normal());
-                if (matched) {
-                    return matched;
+    GLFWcursor *CreateAsciiCursor(const std::array<const char *, 24> &rows, int hotX, int hotY) {
+        constexpr int width = 24;
+        constexpr int height = 24;
+        std::array<unsigned char, width * height * 4> pixels{};
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const char pixel = rows[y][x];
+                const int offset = (y * width + x) * 4;
+                if (pixel == 'X') {
+                    pixels[offset + 0] = 28;
+                    pixels[offset + 1] = 30;
+                    pixels[offset + 2] = 34;
+                    pixels[offset + 3] = 255;
+                } else if (pixel == '.') {
+                    pixels[offset + 0] = 248;
+                    pixels[offset + 1] = 250;
+                    pixels[offset + 2] = 252;
+                    pixels[offset + 3] = 255;
                 }
             }
-            sk_sp<SkTypeface> fallback = fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
-            if (fallback) {
-                return fallback;
+        }
+        GLFWimage image{width, height, pixels.data()};
+        return glfwCreateCursor(&image, hotX, hotY);
+    }
+
+    GLFWcursor *CreateGrabCursor() {
+        return CreateAsciiCursor({
+                                     "                        ",
+                                     "                        ",
+                                     "        .XX.            ",
+                                     "       .X..X.           ",
+                                     "       .X..X.           ",
+                                     "    .XX.X..X.XX.        ",
+                                     "   .X..XX..XX..X.       ",
+                                     "   .X............X.     ",
+                                     "   .X............X.     ",
+                                     "    .X...........X.     ",
+                                     "     .X..........X.     ",
+                                     "      .X........X.      ",
+                                     "       .X......X.       ",
+                                     "        .XXXXXX.        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        "
+                                 }, 11, 8);
+    }
+
+    GLFWcursor *CreateGrabbingCursor() {
+        return CreateAsciiCursor({
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "     .XXXXXXXXXXXX.     ",
+                                     "    .X............X.    ",
+                                     "   .X..............X.   ",
+                                     "  .X................X.  ",
+                                     "  .X................X.  ",
+                                     "  .X................X.  ",
+                                     "   .X..............X.   ",
+                                     "    .X............X.    ",
+                                     "     .XXXXXXXXXXXX.     ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        ",
+                                     "                        "
+                                 }, 11, 7);
+    }
+
+    void GlfwErrorCallback(int error, const char *description) {
+        std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
+    }
+
+    SkColor ToSkColor(Color color) {
+        return SkColorSetARGB(
+            static_cast<U8CPU>(Clamp(color.a, 0.0f, 1.0f) * 255.0f),
+            static_cast<U8CPU>(Clamp(color.r, 0.0f, 1.0f) * 255.0f),
+            static_cast<U8CPU>(Clamp(color.g, 0.0f, 1.0f) * 255.0f),
+            static_cast<U8CPU>(Clamp(color.b, 0.0f, 1.0f) * 255.0f)
+        );
+    }
+
+    sk_sp<SkTypeface> CanvasTypeface() {
+        static sk_sp<SkTypeface> typeface = [] {
+            sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
+            if (fontMgr) {
+                for (const char *family: {"Apple SD Gothic Neo", "SF Pro Text", "Helvetica Neue", "Helvetica"}) {
+                    sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyle(family, SkFontStyle::Normal());
+                    if (matched) {
+                        return matched;
+                    }
+                }
+                sk_sp<SkTypeface> fallback = fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
+                if (fallback) {
+                    return fallback;
+                }
             }
+
+            const char *fontPaths[] = {
+                "/System/Library/Fonts/SFNS.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+            };
+            if (!fontMgr) {
+                fontMgr = SkFontMgr::RefEmpty();
+            }
+            for (const char *path: fontPaths) {
+                sk_sp<SkTypeface> loaded = fontMgr->makeFromFile(path);
+                if (loaded) {
+                    return loaded;
+                }
+            }
+            return sk_sp<SkTypeface>();
+        }();
+        return typeface;
+    }
+
+    sk_sp<SkFontMgr> CanvasFontMgr() {
+        static sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
+        return fontMgr;
+    }
+
+    sk_sp<SkTypeface> TypefaceForCharacter(SkUnichar character, sk_sp<SkTypeface> preferred) {
+        SkFont preferredFont(preferred);
+        if (preferredFont.unicharToGlyph(character) != 0) {
+            return preferred;
         }
 
-        const char *fontPaths[] = {
-            "/System/Library/Fonts/SFNS.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc"
-        };
+        sk_sp<SkFontMgr> fontMgr = CanvasFontMgr();
         if (!fontMgr) {
-            fontMgr = SkFontMgr::RefEmpty();
+            return preferred;
         }
-        for (const char *path: fontPaths) {
-            sk_sp<SkTypeface> loaded = fontMgr->makeFromFile(path);
-            if (loaded) {
-                return loaded;
+
+        const char *languages[] = {"ko", "en"};
+        sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyleCharacter(
+            nullptr,
+            SkFontStyle::Normal(),
+            languages,
+            2,
+            character
+        );
+        return matched ? matched : preferred;
+    }
+
+    float DrawTextWithFallback(SkCanvas *canvas, const std::string &line, float x, float baseline, float size,
+                               const SkPaint &paint) {
+        if (line.empty()) {
+            return 0.0f;
+        }
+
+        const char *start = line.data();
+        const char *cursor = start;
+        const char *end = start + line.size();
+        sk_sp<SkTypeface> currentTypeface;
+        std::string run;
+        float advance = 0.0f;
+        sk_sp<SkTypeface> preferred = CanvasTypeface();
+
+        auto flush = [&] {
+            if (run.empty()) {
+                return;
+            }
+            SkFont font(currentTypeface ? currentTypeface : preferred, size);
+            canvas->drawSimpleText(
+                run.data(),
+                run.size(),
+                SkTextEncoding::kUTF8,
+                x + advance,
+                baseline,
+                font,
+                paint
+            );
+            advance += font.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
+            run.clear();
+        };
+
+        while (cursor < end) {
+            const char *before = cursor;
+            SkUnichar character = SkUTF::NextUTF8WithReplacement(&cursor, end);
+            sk_sp<SkTypeface> typeface = TypefaceForCharacter(character, preferred);
+            if (!currentTypeface || currentTypeface.get() != typeface.get()) {
+                flush();
+                currentTypeface = typeface;
+            }
+            run.append(before, static_cast<size_t>(cursor - before));
+        }
+        flush();
+        return advance;
+    }
+
+    const char *ToolLabel(Application::Tool tool) {
+        switch (tool) {
+            case Application::Tool::Select:
+                return "Select";
+            case Application::Tool::Pan:
+                return "Pan";
+            case Application::Tool::Rect:
+                return "Rect";
+            case Application::Tool::Circle:
+                return "Circle";
+            case Application::Tool::Line:
+                return "Line";
+            case Application::Tool::Arrow:
+                return "Arrow";
+            case Application::Tool::Text:
+                return "Text";
+            case Application::Tool::Image:
+                return "Image";
+            case Application::Tool::Brush:
+                return "Brush";
+        }
+        return "";
+    }
+
+    const char *ToolShortcut(Application::Tool tool) {
+        switch (tool) {
+            case Application::Tool::Select:
+                return "S";
+            case Application::Tool::Pan:
+                return "P / Space";
+            case Application::Tool::Rect:
+                return "R";
+            case Application::Tool::Circle:
+                return "C";
+            case Application::Tool::Line:
+                return "L";
+            case Application::Tool::Arrow:
+                return "A";
+            case Application::Tool::Text:
+                return "T";
+            case Application::Tool::Image:
+                return "I";
+            case Application::Tool::Brush:
+                return "B";
+        }
+        return "";
+    }
+
+    bool IsLineTool(Application::Tool tool) {
+        return tool == Application::Tool::Line || tool == Application::Tool::Arrow;
+    }
+
+    bool IsBoxTool(Application::Tool tool) {
+        return tool == Application::Tool::Rect || tool == Application::Tool::Circle;
+    }
+
+    int ShapePreferenceIndex(ShapeType type) {
+        switch (type) {
+            case ShapeType::Rect:
+                return 0;
+            case ShapeType::Circle:
+                return 1;
+            case ShapeType::Line:
+                return 2;
+            case ShapeType::Arrow:
+                return 3;
+            case ShapeType::Text:
+                return 4;
+            case ShapeType::Image:
+                return 5;
+            case ShapeType::Brush:
+                return 6;
+        }
+        return 0;
+    }
+
+    const char *ShapePreferenceKey(ShapeType type) {
+        switch (type) {
+            case ShapeType::Rect:
+                return "rect";
+            case ShapeType::Circle:
+                return "circle";
+            case ShapeType::Line:
+                return "line";
+            case ShapeType::Arrow:
+                return "arrow";
+            case ShapeType::Text:
+                return "text";
+            case ShapeType::Image:
+                return "image";
+            case ShapeType::Brush:
+                return "brush";
+        }
+        return "rect";
+    }
+
+    const char *ShapePreferenceLabel(ShapeType type) {
+        switch (type) {
+            case ShapeType::Rect:
+                return "Rect";
+            case ShapeType::Circle:
+                return "Circle";
+            case ShapeType::Line:
+                return "Line";
+            case ShapeType::Arrow:
+                return "Arrow";
+            case ShapeType::Text:
+                return "Text";
+            case ShapeType::Image:
+                return "Image";
+            case ShapeType::Brush:
+                return "Brush";
+        }
+        return "Rect";
+    }
+
+    void DrawPreferencePreview(ShapeType type, const Application::ShapePreferences &prefs, ImVec2 size) {
+        ImDrawList *drawList = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImVec2 end{pos.x + size.x, pos.y + size.y};
+        const ImU32 panel = ImGui::GetColorU32(ImVec4(0.075f, 0.080f, 0.090f, 1.0f));
+        const ImU32 fill = ImGui::ColorConvertFloat4ToU32(
+            ImVec4(prefs.fill.r, prefs.fill.g, prefs.fill.b, prefs.fill.a));
+        const ImU32 stroke = ImGui::ColorConvertFloat4ToU32(
+            ImVec4(prefs.border.r, prefs.border.g, prefs.border.b, prefs.border.a));
+        const float strokeWidth = std::max(1.0f, prefs.borderWidth);
+        const ImVec2 center{pos.x + size.x * 0.5f, pos.y + size.y * 0.5f};
+
+        drawList->AddRectFilled(pos, end, panel, 6.0f);
+        drawList->AddRect(pos, end, ImGui::GetColorU32(ImVec4(0.18f, 0.20f, 0.23f, 1.0f)), 6.0f);
+
+        if (type == ShapeType::Circle) {
+            const float radius = std::min(size.x, size.y) * 0.28f;
+            if (prefs.fillEnabled) {
+                drawList->AddCircleFilled(center, radius, fill, 48);
+            }
+            if (prefs.borderEnabled) {
+                drawList->AddCircle(center, radius, stroke, 48, strokeWidth);
+            }
+        } else if (type == ShapeType::Line || type == ShapeType::Arrow) {
+            const ImVec2 a{pos.x + size.x * 0.22f, center.y};
+            const ImVec2 b{pos.x + size.x * 0.78f, center.y};
+            if (prefs.borderEnabled) {
+                drawList->AddLine(a, b, stroke, strokeWidth);
+            }
+            if (type == ShapeType::Arrow && prefs.borderEnabled) {
+                const float arrowLength = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.85f;
+                const float arrowHalfHeight = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.28f;
+                drawList->AddTriangleFilled(
+                    b,
+                    ImVec2{b.x - arrowLength, b.y - arrowHalfHeight},
+                    ImVec2{b.x - arrowLength, b.y + arrowHalfHeight},
+                    stroke
+                );
+            }
+        } else if (type == ShapeType::Text) {
+            if (prefs.fillEnabled) {
+                drawList->AddText(ImVec2{pos.x + 18.0f, center.y - 9.0f}, fill, "Text");
+            }
+        } else if (type == ShapeType::Brush) {
+            const float radius = std::min(size.x, size.y) * 0.22f * (prefs.brushSize / 52.0f);
+            if (prefs.fillEnabled) {
+                drawList->AddCircleFilled(center, Clamp(radius, 8.0f, 34.0f), fill, 48);
+            }
+            if (prefs.borderEnabled) {
+                drawList->AddCircle(center, Clamp(radius, 8.0f, 34.0f), stroke, 48, std::max(1.0f, strokeWidth));
+            }
+        } else {
+            const ImVec2 rectMin{pos.x + size.x * 0.22f, pos.y + size.y * 0.25f};
+            const ImVec2 rectMax{pos.x + size.x * 0.78f, pos.y + size.y * 0.75f};
+            const float radius = type == ShapeType::Rect || type == ShapeType::Image
+                                     ? std::min(prefs.cornerRadius * 0.25f, 18.0f)
+                                     : 0.0f;
+            if (prefs.fillEnabled || type == ShapeType::Image) {
+                drawList->AddRectFilled(rectMin, rectMax, fill, radius);
+            }
+            if (prefs.borderEnabled) {
+                drawList->AddRect(rectMin, rectMax, stroke, radius, 0, strokeWidth);
+            }
+            if (type == ShapeType::Image) {
+                drawList->AddLine(
+                    ImVec2{rectMin.x + 12.0f, rectMax.y - 14.0f},
+                    ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
+                    stroke,
+                    1.0f
+                );
+                drawList->AddLine(
+                    ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
+                    ImVec2{rectMax.x - 12.0f, rectMax.y - 14.0f},
+                    stroke,
+                    1.0f
+                );
             }
         }
-        return sk_sp<SkTypeface>();
-    }();
-    return typeface;
-}
 
-sk_sp<SkFontMgr> CanvasFontMgr() {
-    static sk_sp<SkFontMgr> fontMgr = SkFontMgr_New_CoreText(nullptr);
-    return fontMgr;
-}
-
-sk_sp<SkTypeface> TypefaceForCharacter(SkUnichar character, sk_sp<SkTypeface> preferred) {
-    SkFont preferredFont(preferred);
-    if (preferredFont.unicharToGlyph(character) != 0) {
-        return preferred;
+        ImGui::Dummy(size);
     }
 
-    sk_sp<SkFontMgr> fontMgr = CanvasFontMgr();
-    if (!fontMgr) {
-        return preferred;
+    bool ParseColor(const std::string &value, Color &color) {
+        std::stringstream stream(value);
+        std::string part;
+        float values[4] = {};
+        for (int i = 0; i < 4; ++i) {
+            if (!std::getline(stream, part, ',')) {
+                return false;
+            }
+            values[i] = std::stof(part);
+        }
+        color = {values[0], values[1], values[2], values[3]};
+        return true;
     }
 
-    const char *languages[] = {"ko", "en"};
-    sk_sp<SkTypeface> matched = fontMgr->matchFamilyStyleCharacter(
-        nullptr,
-        SkFontStyle::Normal(),
-        languages,
-        2,
-        character
-    );
-    return matched ? matched : preferred;
-}
-
-float DrawTextWithFallback(SkCanvas *canvas, const std::string &line, float x, float baseline, float size, const SkPaint &paint) {
-    if (line.empty()) {
-        return 0.0f;
+    std::string FormatColor(Color color) {
+        char buffer[128] = {};
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "%.4f,%.4f,%.4f,%.4f",
+            color.r,
+            color.g,
+            color.b,
+            color.a
+        );
+        return buffer;
     }
 
-    const char *start = line.data();
-    const char *cursor = start;
-    const char *end = start + line.size();
-    sk_sp<SkTypeface> currentTypeface;
-    std::string run;
-    float advance = 0.0f;
-    sk_sp<SkTypeface> preferred = CanvasTypeface();
+    void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
+        const Vec2 delta = end - start;
+        const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
+        shape.position = Midpoint(start, end);
+        shape.size = {length, 1.0f};
+        shape.rotation = RadiansToDegrees(std::atan2(delta.y, delta.x));
+    }
 
-    auto flush = [&] {
-        if (run.empty()) {
+    Vec2 ConstrainLineEnd(Vec2 start, Vec2 end) {
+        const Vec2 delta = end - start;
+        if (std::abs(delta.x) >= std::abs(delta.y)) {
+            return {end.x, start.y};
+        }
+        return {start.x, end.y};
+    }
+
+    int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
+        if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways && data->UserData) {
+            *static_cast<int *>(data->UserData) = data->CursorPos;
+        }
+        return 0;
+    }
+
+    SkPoint DevicePoint(Vec2 world, const CanvasView &view, float dpr) {
+        const Vec2 screen = view.WorldToScreen(world);
+        return SkPoint::Make(screen.x * dpr, screen.y * dpr);
+    }
+
+    SkPoint ExportPoint(Vec2 world, float left, float top, float scaleX, float scaleY) {
+        return SkPoint::Make((world.x - left) * scaleX, (world.y - top) * scaleY);
+    }
+
+    void AddRectMask(const Shape &shape, SkPath &path, const std::function<SkPoint(Vec2)> &mapPoint) {
+        const auto corners = GetShapeCorners(shape);
+        path.moveTo(mapPoint(corners[0]));
+        for (int i = 1; i < 4; ++i) {
+            path.lineTo(mapPoint(corners[i]));
+        }
+        path.close();
+    }
+
+    void AddBrushMask(
+        const Shape &shape,
+        SkPath &path,
+        const std::function<SkPoint(Vec2)> &mapPoint,
+        float scale
+    ) {
+        if (shape.brushPoints.empty()) {
             return;
         }
-        SkFont font(currentTypeface ? currentTypeface : preferred, size);
-        canvas->drawSimpleText(
-            run.data(),
-            run.size(),
-            SkTextEncoding::kUTF8,
-            x + advance,
-            baseline,
-            font,
-            paint
-        );
-        advance += font.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
-        run.clear();
-    };
 
-    while (cursor < end) {
-        const char *before = cursor;
-        SkUnichar character = SkUTF::NextUTF8WithReplacement(&cursor, end);
-        sk_sp<SkTypeface> typeface = TypefaceForCharacter(character, preferred);
-        if (!currentTypeface || currentTypeface.get() != typeface.get()) {
-            flush();
-            currentTypeface = typeface;
+        SkPath stroke;
+        SkPoint p = mapPoint(LocalToWorld(shape.brushPoints.front(), shape));
+        stroke.moveTo(p);
+        if (shape.brushPoints.size() == 1) {
+            path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * scale);
+            return;
         }
-        run.append(before, static_cast<size_t>(cursor - before));
-    }
-    flush();
-    return advance;
-}
 
-const char *ToolLabel(Application::Tool tool) {
-    switch (tool) {
-        case Application::Tool::Select:
-            return "Select";
-        case Application::Tool::Pan:
-            return "Pan";
-        case Application::Tool::Rect:
-            return "Rect";
-        case Application::Tool::Circle:
-            return "Circle";
-        case Application::Tool::Line:
-            return "Line";
-        case Application::Tool::Arrow:
-            return "Arrow";
-        case Application::Tool::Text:
-            return "Text";
-        case Application::Tool::Image:
-            return "Image";
-        case Application::Tool::Brush:
-            return "Brush";
-    }
-    return "";
-}
-
-const char *ToolShortcut(Application::Tool tool) {
-    switch (tool) {
-        case Application::Tool::Select:
-            return "S";
-        case Application::Tool::Pan:
-            return "P / Space";
-        case Application::Tool::Rect:
-            return "R";
-        case Application::Tool::Circle:
-            return "C";
-        case Application::Tool::Line:
-            return "L";
-        case Application::Tool::Arrow:
-            return "A";
-        case Application::Tool::Text:
-            return "T";
-        case Application::Tool::Image:
-            return "I";
-        case Application::Tool::Brush:
-            return "B";
-    }
-    return "";
-}
-
-bool IsLineTool(Application::Tool tool) {
-    return tool == Application::Tool::Line || tool == Application::Tool::Arrow;
-}
-
-bool IsBoxTool(Application::Tool tool) {
-    return tool == Application::Tool::Rect || tool == Application::Tool::Circle;
-}
-
-int ShapePreferenceIndex(ShapeType type) {
-    switch (type) {
-        case ShapeType::Rect:
-            return 0;
-        case ShapeType::Circle:
-            return 1;
-        case ShapeType::Line:
-            return 2;
-        case ShapeType::Arrow:
-            return 3;
-        case ShapeType::Text:
-            return 4;
-        case ShapeType::Image:
-            return 5;
-        case ShapeType::Brush:
-            return 6;
-    }
-    return 0;
-}
-
-const char *ShapePreferenceKey(ShapeType type) {
-    switch (type) {
-        case ShapeType::Rect:
-            return "rect";
-        case ShapeType::Circle:
-            return "circle";
-        case ShapeType::Line:
-            return "line";
-        case ShapeType::Arrow:
-            return "arrow";
-        case ShapeType::Text:
-            return "text";
-        case ShapeType::Image:
-            return "image";
-        case ShapeType::Brush:
-            return "brush";
-    }
-    return "rect";
-}
-
-const char *ShapePreferenceLabel(ShapeType type) {
-    switch (type) {
-        case ShapeType::Rect:
-            return "Rect";
-        case ShapeType::Circle:
-            return "Circle";
-        case ShapeType::Line:
-            return "Line";
-        case ShapeType::Arrow:
-            return "Arrow";
-        case ShapeType::Text:
-            return "Text";
-        case ShapeType::Image:
-            return "Image";
-        case ShapeType::Brush:
-            return "Brush";
-    }
-    return "Rect";
-}
-
-void DrawPreferencePreview(ShapeType type, const Application::ShapePreferences &prefs, ImVec2 size) {
-    ImDrawList *drawList = ImGui::GetWindowDrawList();
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const ImVec2 end{pos.x + size.x, pos.y + size.y};
-    const ImU32 panel = ImGui::GetColorU32(ImVec4(0.075f, 0.080f, 0.090f, 1.0f));
-    const ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(prefs.fill.r, prefs.fill.g, prefs.fill.b, prefs.fill.a));
-    const ImU32 stroke = ImGui::ColorConvertFloat4ToU32(ImVec4(prefs.border.r, prefs.border.g, prefs.border.b, prefs.border.a));
-    const float strokeWidth = std::max(1.0f, prefs.borderWidth);
-    const ImVec2 center{pos.x + size.x * 0.5f, pos.y + size.y * 0.5f};
-
-    drawList->AddRectFilled(pos, end, panel, 6.0f);
-    drawList->AddRect(pos, end, ImGui::GetColorU32(ImVec4(0.18f, 0.20f, 0.23f, 1.0f)), 6.0f);
-
-    if (type == ShapeType::Circle) {
-        const float radius = std::min(size.x, size.y) * 0.28f;
-        if (prefs.fillEnabled) {
-            drawList->AddCircleFilled(center, radius, fill, 48);
+        for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+            stroke.lineTo(mapPoint(LocalToWorld(shape.brushPoints[i], shape)));
         }
-        if (prefs.borderEnabled) {
-            drawList->AddCircle(center, radius, stroke, 48, strokeWidth);
+
+        SkPaint strokePaint;
+        strokePaint.setAntiAlias(true);
+        strokePaint.setStyle(SkPaint::kStroke_Style);
+        strokePaint.setStrokeCap(SkPaint::kRound_Cap);
+        strokePaint.setStrokeJoin(SkPaint::kRound_Join);
+        strokePaint.setStrokeWidth(shape.brushSize * scale);
+        skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
+    }
+
+    void ApplyBlurShape(
+        SkCanvas *canvas,
+        const Shape &shape,
+        const std::function<SkPoint(Vec2)> &mapPoint,
+        float scale
+    ) {
+        SkSurface *surface = canvas->getSurface();
+        if (!surface || !shape.visible || !shape.blurBackground) {
+            return;
         }
-    } else if (type == ShapeType::Line || type == ShapeType::Arrow) {
-        const ImVec2 a{pos.x + size.x * 0.22f, center.y};
-        const ImVec2 b{pos.x + size.x * 0.78f, center.y};
-        if (prefs.borderEnabled) {
-            drawList->AddLine(a, b, stroke, strokeWidth);
+
+        sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
+        if (!snapshot) {
+            return;
         }
-        if (type == ShapeType::Arrow && prefs.borderEnabled) {
-            const float arrowLength = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.85f;
-            const float arrowHalfHeight = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f) * 0.28f;
-            drawList->AddTriangleFilled(
-                b,
-                ImVec2{b.x - arrowLength, b.y - arrowHalfHeight},
-                ImVec2{b.x - arrowLength, b.y + arrowHalfHeight},
-                stroke
-            );
+
+        SkPath mask;
+        if (shape.type == ShapeType::Brush) {
+            AddBrushMask(shape, mask, mapPoint, scale);
+        } else {
+            AddRectMask(shape, mask, mapPoint);
         }
-    } else if (type == ShapeType::Text) {
-        if (prefs.fillEnabled) {
-            drawList->AddText(ImVec2{pos.x + 18.0f, center.y - 9.0f}, fill, "Text");
+        if (mask.isEmpty()) {
+            return;
         }
-    } else if (type == ShapeType::Brush) {
-        const float radius = std::min(size.x, size.y) * 0.22f * (prefs.brushSize / 52.0f);
-        if (prefs.fillEnabled) {
-            drawList->AddCircleFilled(center, Clamp(radius, 8.0f, 34.0f), fill, 48);
-        }
-        if (prefs.borderEnabled) {
-            drawList->AddCircle(center, Clamp(radius, 8.0f, 34.0f), stroke, 48, std::max(1.0f, strokeWidth));
-        }
-    } else {
-        const ImVec2 rectMin{pos.x + size.x * 0.22f, pos.y + size.y * 0.25f};
-        const ImVec2 rectMax{pos.x + size.x * 0.78f, pos.y + size.y * 0.75f};
-        const float radius = type == ShapeType::Rect || type == ShapeType::Image ? std::min(prefs.cornerRadius * 0.25f, 18.0f) : 0.0f;
-        if (prefs.fillEnabled || type == ShapeType::Image) {
-            drawList->AddRectFilled(rectMin, rectMax, fill, radius);
-        }
-        if (prefs.borderEnabled) {
-            drawList->AddRect(rectMin, rectMax, stroke, radius, 0, strokeWidth);
-        }
-        if (type == ShapeType::Image) {
-            drawList->AddLine(
-                ImVec2{rectMin.x + 12.0f, rectMax.y - 14.0f},
-                ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
-                stroke,
-                1.0f
-            );
-            drawList->AddLine(
-                ImVec2{rectMin.x + 32.0f, rectMax.y - 34.0f},
-                ImVec2{rectMax.x - 12.0f, rectMax.y - 14.0f},
-                stroke,
-                1.0f
-            );
-        }
+
+        SkPaint blurPaint;
+        blurPaint.setAntiAlias(true);
+        const float sigma = std::max(0.0f, shape.blurRadius) * scale;
+        blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
+
+        SkPaint clearPaint;
+        clearPaint.setAntiAlias(true);
+        clearPaint.setBlendMode(SkBlendMode::kClear);
+
+        canvas->save();
+        canvas->clipPath(mask, true);
+        canvas->drawPath(mask, clearPaint);
+        canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
+        canvas->restore();
     }
-
-    ImGui::Dummy(size);
-}
-
-bool ParseColor(const std::string &value, Color &color) {
-    std::stringstream stream(value);
-    std::string part;
-    float values[4] = {};
-    for (int i = 0; i < 4; ++i) {
-        if (!std::getline(stream, part, ',')) {
-            return false;
-        }
-        values[i] = std::stof(part);
-    }
-    color = {values[0], values[1], values[2], values[3]};
-    return true;
-}
-
-std::string FormatColor(Color color) {
-    char buffer[128] = {};
-    std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "%.4f,%.4f,%.4f,%.4f",
-        color.r,
-        color.g,
-        color.b,
-        color.a
-    );
-    return buffer;
-}
-
-void SetLineGeometry(Shape &shape, Vec2 start, Vec2 end) {
-    const Vec2 delta = end - start;
-    const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
-    shape.position = Midpoint(start, end);
-    shape.size = {length, 1.0f};
-    shape.rotation = RadiansToDegrees(std::atan2(delta.y, delta.x));
-}
-
-Vec2 ConstrainLineEnd(Vec2 start, Vec2 end) {
-    const Vec2 delta = end - start;
-    if (std::abs(delta.x) >= std::abs(delta.y)) {
-        return {end.x, start.y};
-    }
-    return {start.x, end.y};
-}
-
-int TrackTextEditCursor(ImGuiInputTextCallbackData *data) {
-    if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways && data->UserData) {
-        *static_cast<int *>(data->UserData) = data->CursorPos;
-    }
-    return 0;
-}
-
-SkPoint DevicePoint(Vec2 world, const CanvasView &view, float dpr) {
-    const Vec2 screen = view.WorldToScreen(world);
-    return SkPoint::Make(screen.x * dpr, screen.y * dpr);
-}
-
-SkPoint ExportPoint(Vec2 world, float left, float top, float scaleX, float scaleY) {
-    return SkPoint::Make((world.x - left) * scaleX, (world.y - top) * scaleY);
-}
-
-void AddRectMask(const Shape &shape, SkPath &path, const std::function<SkPoint(Vec2)> &mapPoint) {
-    const auto corners = GetShapeCorners(shape);
-    path.moveTo(mapPoint(corners[0]));
-    for (int i = 1; i < 4; ++i) {
-        path.lineTo(mapPoint(corners[i]));
-    }
-    path.close();
-}
-
-void AddBrushMask(
-    const Shape &shape,
-    SkPath &path,
-    const std::function<SkPoint(Vec2)> &mapPoint,
-    float scale
-) {
-    if (shape.brushPoints.empty()) {
-        return;
-    }
-
-    SkPath stroke;
-    SkPoint p = mapPoint(LocalToWorld(shape.brushPoints.front(), shape));
-    stroke.moveTo(p);
-    if (shape.brushPoints.size() == 1) {
-        path.addCircle(p.x(), p.y(), shape.brushSize * 0.5f * scale);
-        return;
-    }
-
-    for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
-        stroke.lineTo(mapPoint(LocalToWorld(shape.brushPoints[i], shape)));
-    }
-
-    SkPaint strokePaint;
-    strokePaint.setAntiAlias(true);
-    strokePaint.setStyle(SkPaint::kStroke_Style);
-    strokePaint.setStrokeCap(SkPaint::kRound_Cap);
-    strokePaint.setStrokeJoin(SkPaint::kRound_Join);
-    strokePaint.setStrokeWidth(shape.brushSize * scale);
-    skpathutils::FillPathWithPaint(stroke, strokePaint, &path);
-}
-
-void ApplyBlurShape(
-    SkCanvas *canvas,
-    const Shape &shape,
-    const std::function<SkPoint(Vec2)> &mapPoint,
-    float scale
-) {
-    SkSurface *surface = canvas->getSurface();
-    if (!surface || !shape.visible || !shape.blurBackground) {
-        return;
-    }
-
-    sk_sp<SkImage> snapshot = surface->makeImageSnapshot();
-    if (!snapshot) {
-        return;
-    }
-
-    SkPath mask;
-    if (shape.type == ShapeType::Brush) {
-        AddBrushMask(shape, mask, mapPoint, scale);
-    } else {
-        AddRectMask(shape, mask, mapPoint);
-    }
-    if (mask.isEmpty()) {
-        return;
-    }
-
-    SkPaint blurPaint;
-    blurPaint.setAntiAlias(true);
-    const float sigma = std::max(0.0f, shape.blurRadius) * scale;
-    blurPaint.setImageFilter(SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr));
-
-    SkPaint clearPaint;
-    clearPaint.setAntiAlias(true);
-    clearPaint.setBlendMode(SkBlendMode::kClear);
-
-    canvas->save();
-    canvas->clipPath(mask, true);
-    canvas->drawPath(mask, clearPaint);
-    canvas->drawImage(snapshot, 0.0f, 0.0f, SkSamplingOptions(), &blurPaint);
-    canvas->restore();
-}
 } // namespace
 
 bool Application::Init() {
@@ -683,8 +688,21 @@ void Application::HandleInput() {
         groupTransformActive_ = false;
     }
 
-    if (io.MouseWheel != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
-        view_.ZoomAt(mouse, io.MouseWheel, io.KeyAlt ? 0.25f : 1.0f);
+    float wheelDelta = io.MouseWheel;
+    if (io.KeyShift && std::abs(io.MouseWheelH) > std::abs(wheelDelta)) {
+        wheelDelta = -io.MouseWheelH;
+    }
+    if (wheelDelta != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
+        if (io.KeyAlt) {
+            if (Shape *selectedShape = document_.SelectedShape();
+                selectedShape && selectedShape->type == ShapeType::Brush) {
+                PushHistory();
+                selectedShape->brushSize = Clamp(selectedShape->brushSize + wheelDelta * 2.0f, 1.0f, 240.0f);
+                selectedShape->size = {selectedShape->brushSize, selectedShape->brushSize};
+            }
+        } else {
+            view_.ZoomAt(mouse, wheelDelta, io.KeyShift ? 0.25f : 1.0f);
+        }
     }
 
     if (panToolActive) {
@@ -841,7 +859,7 @@ void Application::HandleInput() {
             PushHistory();
             transformHistoryPushed_ = true;
         }
-        transformer_.UpdateDrag(mouseWorld, *selectedShape, io.KeyShift);
+        transformer_.UpdateDrag(mouseWorld, *selectedShape, io.KeyShift, io.KeyAlt);
         if (transformer_.ActiveMode() == DragMode::Move) {
             ApplySnapping(*selectedShape);
         } else {
@@ -854,7 +872,7 @@ void Application::HandleInput() {
             PushHistory();
             transformHistoryPushed_ = true;
         }
-        UpdateGroupTransform(mouseWorld, io.KeyShift);
+        UpdateGroupTransform(mouseWorld, io.KeyShift, io.KeyAlt);
     }
 
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
@@ -874,12 +892,12 @@ void Application::HandleShortcuts() {
     }
 
     const bool macCommandDown =
-        glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
-        glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
+            glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
     const bool shiftDown =
-        glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
-        glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
-        io.KeyShift;
+            glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
+            io.KeyShift;
 
     if (macCommandDown && shiftDown && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         Redo();
@@ -958,11 +976,11 @@ void Application::HandleShortcuts() {
 void Application::RenderPanels() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     constexpr ImGuiWindowFlags panelFlags =
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoBringToFrontOnFocus;
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(ImVec2(kLeftPanelWidth, viewport->WorkSize.y));
@@ -1095,9 +1113,14 @@ void Application::RenderPanels() {
             applySelected([&](Shape &target) { target.cornerRadius = radius; });
         }
         if (ImGui::Checkbox("Background Blur", &blurBackground)) {
-            applySelected([&](Shape &target) { target.blurBackground = blurBackground; });
+            applySelected([&](Shape &target) {
+                target.blurBackground = blurBackground;
+                if (blurBackground) {
+                    target.fillEnabled = false;
+                }
+            });
         }
-        if (ImGui::DragFloat("Blur Radius", &blurRadius, 0.25f, 0.0f, 80.0f)) {
+        if (ImGui::DragFloat("Blur Amount", &blurRadius, 0.25f, 0.0f, 80.0f)) {
             blurRadius = Clamp(blurRadius, 0.0f, 80.0f);
             applySelected([&](Shape &target) { target.blurRadius = blurRadius; });
         }
@@ -1162,12 +1185,16 @@ void Application::RenderPanels() {
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
 
         ImGui::SeparatorText("Effects");
+        const bool wasBlurBackground = shape->blurBackground;
         ImGui::Checkbox("Background Blur", &shape->blurBackground);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
-        ImGui::DragFloat("Blur Radius", &shape->blurRadius, 0.25f, 0.0f, 80.0f);
+        if (shape->blurBackground && !wasBlurBackground) {
+            shape->fillEnabled = false;
+        }
+        ImGui::DragFloat("Blur Amount", &shape->blurRadius, 0.25f, 0.0f, 80.0f);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         if (shape->type == ShapeType::Brush) {
-            ImGui::DragFloat("Brush Size", &shape->brushSize, 0.5f, 4.0f, 240.0f);
+            ImGui::DragFloat("Brush Size", &shape->brushSize, 0.5f, 1.0f, 240.0f);
             captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
         }
 
@@ -1181,7 +1208,7 @@ void Application::RenderPanels() {
         shape->arrowHeadSize = Clamp(shape->arrowHeadSize, 6.0f, 120.0f);
         shape->cornerRadius = Clamp(shape->cornerRadius, 0.0f, 1000.0f);
         shape->blurRadius = Clamp(shape->blurRadius, 0.0f, 80.0f);
-        shape->brushSize = Clamp(shape->brushSize, 4.0f, 240.0f);
+        shape->brushSize = Clamp(shape->brushSize, 1.0f, 240.0f);
     } else {
         ImGui::TextUnformatted("No selection");
     }
@@ -1287,11 +1314,11 @@ void Application::RenderBrushControls() {
     ImGui::SetCursorPosX(panelWidth - 76.0f);
     ImGui::SetNextItemWidth(56.0f);
     ImGui::InputFloat("##BrushSizeInput", &brushToolSize_, 1.0f, 8.0f, "%.0f");
-    brushToolSize_ = Clamp(brushToolSize_, 4.0f, 240.0f);
+    brushToolSize_ = Clamp(brushToolSize_, 1.0f, 240.0f);
 
     ImGui::SetNextItemWidth(-1.0f);
-    ImGui::SliderFloat("##BrushSizeSlider", &brushToolSize_, 4.0f, 240.0f, "Size %.0f");
-    brushToolSize_ = Clamp(brushToolSize_, 4.0f, 240.0f);
+    ImGui::SliderFloat("##BrushSizeSlider", &brushToolSize_, 1.0f, 240.0f, "Size %.0f");
+    brushToolSize_ = Clamp(brushToolSize_, 1.0f, 240.0f);
 
     ImGui::End();
 }
@@ -1352,8 +1379,8 @@ void Application::RenderTextEditor() {
     }
 
     const ImGuiInputTextFlags flags =
-        ImGuiInputTextFlags_EnterReturnsTrue |
-        ImGuiInputTextFlags_CallbackAlways;
+            ImGuiInputTextFlags_EnterReturnsTrue |
+            ImGuiInputTextFlags_CallbackAlways;
     const bool submitted = ImGui::InputTextMultiline(
         "##TextEdit",
         textEditBuffer_.data(),
@@ -1607,16 +1634,21 @@ void Application::RenderPreferencesDialog() {
                 changed = ImGui::DragFloat("Corner Radius", &prefs.cornerRadius, 0.5f, 0.0f, 1000.0f) || changed;
             }
             if (type == ShapeType::Brush) {
-                changed = ImGui::DragFloat("Brush Size", &prefs.brushSize, 0.5f, 4.0f, 240.0f) || changed;
+                changed = ImGui::DragFloat("Brush Size", &prefs.brushSize, 0.5f, 1.0f, 240.0f) || changed;
             }
+            const bool wasBlurBackground = prefs.blurBackground;
             changed = ImGui::Checkbox("Background Blur", &prefs.blurBackground) || changed;
-            changed = ImGui::DragFloat("Blur Radius", &prefs.blurRadius, 0.25f, 0.0f, 80.0f) || changed;
+            if (prefs.blurBackground && !wasBlurBackground) {
+                prefs.fillEnabled = false;
+                changed = true;
+            }
+            changed = ImGui::DragFloat("Blur Amount", &prefs.blurRadius, 0.25f, 0.0f, 80.0f) || changed;
 
             prefs.borderWidth = Clamp(prefs.borderWidth, 0.0f, 100.0f);
             prefs.arrowHeadSize = Clamp(prefs.arrowHeadSize, 6.0f, 120.0f);
             prefs.cornerRadius = Clamp(prefs.cornerRadius, 0.0f, 1000.0f);
             prefs.blurRadius = Clamp(prefs.blurRadius, 0.0f, 80.0f);
-            prefs.brushSize = Clamp(prefs.brushSize, 4.0f, 240.0f);
+            prefs.brushSize = Clamp(prefs.brushSize, 1.0f, 240.0f);
             ImGui::EndGroup();
 
             ImGui::SameLine();
@@ -1647,8 +1679,8 @@ void Application::RenderPreferencesDialog() {
 std::string Application::PreferencesPath() const {
     const char *home = std::getenv("HOME");
     const std::filesystem::path base = home && *home
-        ? std::filesystem::path(home) / "Library" / "Application Support" / "TCanvas"
-        : std::filesystem::temp_directory_path() / "TCanvas";
+                                           ? std::filesystem::path(home) / "Library" / "Application Support" / "TCanvas"
+                                           : std::filesystem::temp_directory_path() / "TCanvas";
     return (base / "preferences.ini").string();
 }
 
@@ -1660,6 +1692,7 @@ void Application::ResetDefaultPreferences() {
     rect.borderEnabled = true;
     rect.borderWidth = 3.0f;
     rect.cornerRadius = 0.0f;
+    rect.blurRadius = 5.0f;
 
     ShapePreferences circle = rect;
     circle.cornerRadius = 1000.0f;
@@ -1683,12 +1716,12 @@ void Application::ResetDefaultPreferences() {
     image.borderWidth = 3.0f;
 
     ShapePreferences brush = rect;
-    brush.fillEnabled = false;
+    brush.fillEnabled = true;
     brush.borderEnabled = false;
     brush.borderWidth = 0.0f;
-    brush.blurBackground = true;
-    brush.blurRadius = 14.0f;
-    brush.brushSize = 52.0f;
+    brush.blurBackground = false;
+    brush.blurRadius = 5.0f;
+    brush.brushSize = 4.0f;
 
     shapePreferences_[ShapePreferenceIndex(ShapeType::Rect)] = rect;
     shapePreferences_[ShapePreferenceIndex(ShapeType::Circle)] = circle;
@@ -1737,8 +1770,10 @@ void Application::LoadPreferences() {
 
         ShapeType type = ShapeType::Rect;
         bool matched = false;
-        for (ShapeType candidate: {ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
-                                  ShapeType::Text, ShapeType::Image, ShapeType::Brush}) {
+        for (ShapeType candidate: {
+                 ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
+                 ShapeType::Text, ShapeType::Image, ShapeType::Brush
+             }) {
             if (section == ShapePreferenceKey(candidate)) {
                 type = candidate;
                 matched = true;
@@ -1793,8 +1828,10 @@ void Application::SavePreferences() const {
     file << "# TCanvas preferences\n";
     file << "window.width=" << preferredWindowWidth_ << "\n";
     file << "window.height=" << preferredWindowHeight_ << "\n";
-    for (ShapeType type: {ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
-                         ShapeType::Text, ShapeType::Image, ShapeType::Brush}) {
+    for (ShapeType type: {
+             ShapeType::Rect, ShapeType::Circle, ShapeType::Line, ShapeType::Arrow,
+             ShapeType::Text, ShapeType::Image, ShapeType::Brush
+         }) {
         const ShapePreferences &prefs = shapePreferences_[ShapePreferenceIndex(type)];
         const char *key = ShapePreferenceKey(type);
         file << key << ".fill=" << FormatColor(prefs.fill) << "\n";
@@ -2109,9 +2146,9 @@ void Application::CopySelection() {
 
 void Application::PasteSelectionOrClipboardImage() {
     const bool clipboardStillInternal =
-        hasCopiedShape_ &&
-        copiedClipboardChangeCount_ >= 0 &&
-        ClipboardChangeCount() == copiedClipboardChangeCount_;
+            hasCopiedShape_ &&
+            copiedClipboardChangeCount_ >= 0 &&
+            ClipboardChangeCount() == copiedClipboardChangeCount_;
 
     if (clipboardStillInternal) {
         std::vector<Shape> pastedShapes;
@@ -2442,9 +2479,9 @@ void Application::BeginGroupTransform(DragMode mode, Vec2 mouseWorld) {
     transformer_.BeginDrag(mode, mouseWorld, groupBounds_);
 }
 
-void Application::UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio) {
+void Application::UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio, bool resizeFromCenter) {
     Shape nextBounds = groupStartBounds_;
-    transformer_.UpdateDrag(mouseWorld, nextBounds, keepAspectRatio);
+    transformer_.UpdateDrag(mouseWorld, nextBounds, keepAspectRatio, resizeFromCenter);
 
     const float sx = groupStartBounds_.size.x == 0.0f ? 1.0f : nextBounds.size.x / groupStartBounds_.size.x;
     const float sy = groupStartBounds_.size.y == 0.0f ? 1.0f : nextBounds.size.y / groupStartBounds_.size.y;
@@ -2453,8 +2490,10 @@ void Application::UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio) {
         Shape next = groupStartShapes_[i];
         const Vec2 offset = groupStartShapes_[i].position - groupStartBounds_.position;
         next.position = nextBounds.position + Vec2{offset.x * sx, offset.y * sy};
-        next.size = {std::max(1.0f, groupStartShapes_[i].size.x * std::abs(sx)),
-                     std::max(1.0f, groupStartShapes_[i].size.y * std::abs(sy))};
+        next.size = {
+            std::max(1.0f, groupStartShapes_[i].size.x * std::abs(sx)),
+            std::max(1.0f, groupStartShapes_[i].size.y * std::abs(sy))
+        };
         next.brushSize = std::max(1.0f, groupStartShapes_[i].brushSize * (std::abs(sx) + std::abs(sy)) * 0.5f);
         if (next.type == ShapeType::Brush) {
             next.brushPoints.clear();
@@ -2522,7 +2561,7 @@ void Application::BeginLineDrawing(Tool tool, Vec2 startWorld) {
     Shape shape;
     shape.type = tool == Tool::Arrow ? ShapeType::Arrow : ShapeType::Line;
     shape.name = std::string(tool == Tool::Arrow ? "Arrow " : "Line ") +
-        std::to_string(document_.Shapes().size() + 1);
+                 std::to_string(document_.Shapes().size() + 1);
     ApplyPreferences(shape);
     lineStartWorld_ = startWorld;
     drawingLineTool_ = tool;
@@ -2553,7 +2592,7 @@ void Application::BeginBoxDrawing(Tool tool, Vec2 startWorld) {
     Shape shape;
     shape.type = tool == Tool::Circle ? ShapeType::Circle : ShapeType::Rect;
     shape.name = std::string(tool == Tool::Circle ? "Circle " : "Rectangle ") +
-        std::to_string(document_.Shapes().size() + 1);
+                 std::to_string(document_.Shapes().size() + 1);
     if (tool == Tool::Circle) {
         shape.cornerRadius = 1000.0f;
     }
@@ -2708,10 +2747,6 @@ void Application::RenderGridAndRulers(
 }
 
 void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
-    if (shape.type == ShapeType::Brush) {
-        return;
-    }
-
     canvas->save();
     canvas->translate(shape.position.x, shape.position.y);
     canvas->rotate(shape.rotation);
@@ -2735,7 +2770,50 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
     border.setStrokeWidth(shape.borderWidth);
     border.setColor(ToSkColor(shape.border));
 
-    if (shape.type == ShapeType::Circle) {
+    if (shape.type == ShapeType::Brush) {
+        if (!shape.brushPoints.empty() && (shape.fillEnabled || shape.borderEnabled)) {
+            SkPath path;
+            path.moveTo(shape.brushPoints.front().x, shape.brushPoints.front().y);
+            if (shape.brushPoints.size() == 1) {
+                if (shape.borderEnabled && shape.borderWidth > 0.0f) {
+                    canvas->drawCircle(
+                        shape.brushPoints.front().x,
+                        shape.brushPoints.front().y,
+                        shape.brushSize * 0.5f + shape.borderWidth,
+                        border
+                    );
+                }
+                if (shape.fillEnabled) {
+                    canvas->drawCircle(
+                        shape.brushPoints.front().x,
+                        shape.brushPoints.front().y,
+                        shape.brushSize * 0.5f,
+                        fill
+                    );
+                }
+            } else {
+                for (size_t i = 1; i < shape.brushPoints.size(); ++i) {
+                    path.lineTo(shape.brushPoints[i].x, shape.brushPoints[i].y);
+                }
+
+                if (shape.borderEnabled && shape.borderWidth > 0.0f) {
+                    SkPaint brushBorder = border;
+                    brushBorder.setStrokeCap(SkPaint::kRound_Cap);
+                    brushBorder.setStrokeJoin(SkPaint::kRound_Join);
+                    brushBorder.setStrokeWidth(shape.brushSize + shape.borderWidth * 2.0f);
+                    canvas->drawPath(path, brushBorder);
+                }
+                if (shape.fillEnabled) {
+                    SkPaint brushFill = fill;
+                    brushFill.setStyle(SkPaint::kStroke_Style);
+                    brushFill.setStrokeCap(SkPaint::kRound_Cap);
+                    brushFill.setStrokeJoin(SkPaint::kRound_Join);
+                    brushFill.setStrokeWidth(shape.brushSize);
+                    canvas->drawPath(path, brushFill);
+                }
+            }
+        }
+    } else if (shape.type == ShapeType::Circle) {
         if (shape.fillEnabled) {
             canvas->drawOval(rect, fill);
         }
@@ -3011,7 +3089,9 @@ void Application::ApplySnapping(Shape &shape) {
         const float otherLeft = std::min({otherCorners[0].x, otherCorners[1].x, otherCorners[2].x, otherCorners[3].x});
         const float otherRight = std::max({otherCorners[0].x, otherCorners[1].x, otherCorners[2].x, otherCorners[3].x});
         const float otherTop = std::min({otherCorners[0].y, otherCorners[1].y, otherCorners[2].y, otherCorners[3].y});
-        const float otherBottom = std::max({otherCorners[0].y, otherCorners[1].y, otherCorners[2].y, otherCorners[3].y});
+        const float otherBottom = std::max({
+            otherCorners[0].y, otherCorners[1].y, otherCorners[2].y, otherCorners[3].y
+        });
         const float otherCenterX = (otherLeft + otherRight) * 0.5f;
         const float otherCenterY = (otherTop + otherBottom) * 0.5f;
 

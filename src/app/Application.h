@@ -41,8 +41,8 @@ public:
         float arrowHeadSize = 28.0f;
         float cornerRadius = 0.0f;
         bool blurBackground = false;
-        float blurRadius = 3.5f;
-        float brushSize = 52.0f;
+        float blurRadius = 5.0f;
+        float brushSize = 4.0f;
     };
 
 private:
@@ -218,7 +218,7 @@ private:
 
     void BeginGroupTransform(DragMode mode, Vec2 mouseWorld);
 
-    void UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio);
+    void UpdateGroupTransform(Vec2 mouseWorld, bool keepAspectRatio, bool resizeFromCenter);
 
     void FinishGroupTransform();
 

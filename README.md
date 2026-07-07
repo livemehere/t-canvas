@@ -12,13 +12,15 @@ export multiple asset sizes.
 
 ## Features
 
-- Draw rectangles, circles, lines, arrows, text, images, and blur brush strokes.
+- Draw rectangles, circles, lines, arrows, text, images, blur brushes, and colored brush strokes.
 - Drag-to-create drawing for rectangles, circles, lines, and arrows.
 - Transform selected shapes with resize handles.
 - Hold `Shift` while resizing to preserve aspect ratio.
+- Hold `Option` while resizing box-like shapes to resize from the center.
 - Hold `Shift` while drawing lines or arrows to constrain them to horizontal or vertical.
 - Pan the canvas by holding `Space` and dragging.
-- Zoom with the mouse wheel, or use `Option + Wheel` for finer zoom control.
+- Zoom with the mouse wheel, or use `Shift + Wheel` for finer zoom control.
+- With a brush selected, use `Option + Wheel` to adjust brush size.
 - Snap to grid and nearby shape edges/centers.
 - Select multiple shapes with drag selection or `Cmd + A`.
 - Select every visible shape including locked shapes with `Cmd + Shift + A`.
@@ -46,7 +48,7 @@ The bottom toolbar contains the main tools:
 | Arrow  | `A`      | Drag to create an arrow. Hold `Shift` for straight horizontal/vertical arrows. |
 | Text   | `T`      | Create a text box and edit its content.                                        |
 | Image  | `I`      | Import an image file as a shape.                                               |
-| Brush  | `B`      | Paint blur regions.                                                            |
+| Brush  | `B`      | Paint blur regions or colored brush strokes.                                   |
 
 <img width="941" height="177" alt="image" src="https://github.com/user-attachments/assets/3727ff81-f79e-4df0-a830-465aebc5fb54" />
 
@@ -86,7 +88,7 @@ For a single selection, you can edit:
 - Stroke width
 - Corner radius
 - Background blur
-- Blur radius
+- Blur amount
 - Text content for text shapes
 - Brush size for brush shapes
 
@@ -98,7 +100,7 @@ For multiple selections, common style properties can be edited together.
 
 TCanvas supports blur in two ways:
 
-- Use the Brush tool to paint blur masks.
+- Use the Brush tool to paint blur masks, colored strokes, or both.
 - Enable Background Blur on any shape to blur the content behind that shape.
 
 Blur regions are included when copying or exporting selected content.
