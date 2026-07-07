@@ -641,7 +641,7 @@ void Application::Run() {
         const float dpr = static_cast<float>(framebufferWidth) / static_cast<float>(windowWidth);
 
         glViewport(0, 0, framebufferWidth, framebufferHeight);
-        glClearColor(0.02f, 0.02f, 0.025f, 1.0f);
+        glClearColor(0.06f, 0.06f, 0.07f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         imgui_.BeginFrame();
@@ -2696,7 +2696,7 @@ void Application::RenderGridAndRulers(
     if (drawGrid) {
         SkPaint grid;
         grid.setAntiAlias(false);
-        grid.setColor(SkColorSetARGB(14, 255, 255, 255));
+        grid.setColor(SkColorSetARGB(6, 255, 255, 255));
         grid.setStrokeWidth(1.0f);
 
         for (float worldX = firstWorldX; worldX <= worldBottomRight.x + worldStep; worldX += worldStep) {
