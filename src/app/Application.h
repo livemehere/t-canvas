@@ -156,6 +156,10 @@ private:
 
     void AddShapeFromTool(Tool tool);
 
+    void SelectAllShapes(bool includeLocked);
+
+    void ReorderSelectedShapes(bool towardFront, bool allTheWay);
+
     void ApplyPreferences(Shape &shape) const;
 
     void ResetDefaultPreferences();

@@ -21,6 +21,7 @@ export multiple asset sizes.
 - Zoom with the mouse wheel, or use `Option + Wheel` for finer zoom control.
 - Snap to grid and nearby shape edges/centers.
 - Select multiple shapes with drag selection or `Cmd + A`.
+- Select every visible shape including locked shapes with `Cmd + Shift + A`.
 - Copy/paste shapes with `Cmd + C` / `Cmd + V`.
 - Copy selected content as an image for pasting into other apps.
 - Paste screenshots or images from the system clipboard.
@@ -58,6 +59,10 @@ Layer actions:
 - Click a layer to select it.
 - `Shift + Click` a second layer to select a range.
 - Drag layers to reorder z-index.
+- Press `]` to move selected layers one step toward the front.
+- Press `[` to move selected layers one step toward the back.
+- Press `Shift + ]` to move selected layers to the front.
+- Press `Shift + [` to move selected layers to the back.
 - Toggle visibility with the visibility button.
 - Toggle locking with the lock button.
 

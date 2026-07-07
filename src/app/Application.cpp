@@ -717,8 +717,12 @@ void Application::HandleShortcuts() {
     const bool macCommandDown =
         glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
         glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
+    const bool shiftDown =
+        glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+        glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
+        io.KeyShift;
 
-    if (macCommandDown && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+    if (macCommandDown && shiftDown && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         Redo();
         return;
     }
@@ -726,13 +730,13 @@ void Application::HandleShortcuts() {
         Undo();
         return;
     }
+    if (macCommandDown && shiftDown && ImGui::IsKeyPressed(ImGuiKey_A)) {
+        SelectAllShapes(true);
+        transformer_.EndDrag();
+        return;
+    }
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_A)) {
-        std::vector<int> all;
-        all.reserve(document_.Shapes().size());
-        for (int i = 0; i < static_cast<int>(document_.Shapes().size()); ++i) {
-            all.push_back(i);
-        }
-        document_.SelectShapes(std::move(all));
+        SelectAllShapes(false);
         transformer_.EndDrag();
         return;
     }
@@ -749,7 +753,16 @@ void Application::HandleShortcuts() {
         return;
     }
 
-    if (io.KeySuper || io.KeyAlt || io.KeyCtrl || io.KeyShift) {
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) {
+        ReorderSelectedShapes(false, shiftDown);
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) {
+        ReorderSelectedShapes(true, shiftDown);
+        return;
+    }
+
+    if (io.KeySuper || io.KeyAlt || io.KeyCtrl) {
         return;
     }
 
@@ -1287,7 +1300,12 @@ void Application::RenderExportPreview(sk_sp<SkData> data, Vec2 size) {
             return;
         }
 
-        const SkImageInfo info = SkImageInfo::MakeN32Premul(image->width(), image->height());
+        const SkImageInfo info = SkImageInfo::Make(
+            image->width(),
+            image->height(),
+            kRGBA_8888_SkColorType,
+            kPremul_SkAlphaType
+        );
         std::vector<unsigned char> pixels(static_cast<size_t>(info.computeMinByteSize()));
         if (!image->readPixels(info, pixels.data(), info.minRowBytes(), 0, 0)) {
             ImGui::TextDisabled("Preview unavailable");
@@ -1308,7 +1326,7 @@ void Application::RenderExportPreview(sk_sp<SkData> data, Vec2 size) {
             image->width(),
             image->height(),
             0,
-            GL_BGRA,
+            GL_RGBA,
             GL_UNSIGNED_BYTE,
             pixels.data()
         );
@@ -1588,6 +1606,106 @@ Vec2 Application::ViewCenterWorld() const {
         static_cast<float>(windowWidth) * 0.5f,
         static_cast<float>(windowHeight) * 0.5f
     });
+}
+
+void Application::SelectAllShapes(bool includeLocked) {
+    std::vector<int> all;
+    const auto &shapes = document_.Shapes();
+    all.reserve(shapes.size());
+    for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+        if (!shapes[i].visible) {
+            continue;
+        }
+        if (!includeLocked && shapes[i].locked) {
+            continue;
+        }
+        all.push_back(i);
+    }
+    document_.SelectShapes(std::move(all));
+}
+
+void Application::ReorderSelectedShapes(bool towardFront, bool allTheWay) {
+    std::vector<int> selected = document_.SelectedShapeIndices();
+    if (selected.empty()) {
+        return;
+    }
+
+    auto &shapes = document_.Shapes();
+    if (shapes.size() <= 1) {
+        return;
+    }
+
+    PushHistory();
+    std::sort(selected.begin(), selected.end());
+    std::vector<Shape> picked;
+    picked.reserve(selected.size());
+    for (int index: selected) {
+        picked.push_back(shapes[index]);
+    }
+
+    if (allTheWay) {
+        std::vector<Shape> rest;
+        rest.reserve(shapes.size() - selected.size());
+        for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
+            if (!std::binary_search(selected.begin(), selected.end(), i)) {
+                rest.push_back(std::move(shapes[i]));
+            }
+        }
+
+        shapes.clear();
+        std::vector<int> nextSelected;
+        nextSelected.reserve(picked.size());
+        if (towardFront) {
+            shapes.insert(shapes.end(), picked.begin(), picked.end());
+            shapes.insert(shapes.end(), rest.begin(), rest.end());
+            for (int i = 0; i < static_cast<int>(picked.size()); ++i) {
+                nextSelected.push_back(i);
+            }
+        } else {
+            shapes.insert(shapes.end(), rest.begin(), rest.end());
+            const int start = static_cast<int>(shapes.size());
+            shapes.insert(shapes.end(), picked.begin(), picked.end());
+            for (int i = 0; i < static_cast<int>(picked.size()); ++i) {
+                nextSelected.push_back(start + i);
+            }
+        }
+        document_.SelectShapes(std::move(nextSelected));
+        transformer_.EndDrag();
+        return;
+    }
+
+    std::vector<bool> isSelected(shapes.size(), false);
+    for (int index: selected) {
+        isSelected[index] = true;
+    }
+
+    if (towardFront) {
+        for (int index: selected) {
+            if (index > 0 && !isSelected[index - 1]) {
+                std::swap(shapes[index], shapes[index - 1]);
+                isSelected[index] = false;
+                isSelected[index - 1] = true;
+            }
+        }
+    } else {
+        for (auto it = selected.rbegin(); it != selected.rend(); ++it) {
+            const int index = *it;
+            if (index + 1 < static_cast<int>(shapes.size()) && !isSelected[index + 1]) {
+                std::swap(shapes[index], shapes[index + 1]);
+                isSelected[index] = false;
+                isSelected[index + 1] = true;
+            }
+        }
+    }
+
+    std::vector<int> nextSelected;
+    for (int i = 0; i < static_cast<int>(isSelected.size()); ++i) {
+        if (isSelected[i]) {
+            nextSelected.push_back(i);
+        }
+    }
+    document_.SelectShapes(std::move(nextSelected));
+    transformer_.EndDrag();
 }
 
 void Application::ApplyPreferences(Shape &shape) const {
