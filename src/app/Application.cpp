@@ -126,6 +126,14 @@ namespace {
     }
 #endif
 
+    bool IsShiftDown(GLFWwindow *window, const ImGuiIO &io) {
+        if (!io.KeyShift) {
+            return false;
+        }
+        return glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+               glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+    }
+
     GLFWcursor *CreateAsciiCursor(const std::array<const char *, 24> &rows, int hotX, int hotY) {
         constexpr int width = 24;
         constexpr int height = 24;
@@ -752,6 +760,7 @@ void Application::HandleInput() {
 
     const Vec2 mouse{io.MousePos.x, io.MousePos.y};
     const Vec2 mouseWorld = view_.ScreenToWorld(mouse);
+    const bool shiftDown = IsShiftDown(window_, io);
 
     if (editingTextIndex_ < 0 && !io.WantCaptureKeyboard &&
         (ImGui::IsKeyPressed(ImGuiKey_Backspace) || ImGui::IsKeyPressed(ImGuiKey_Delete))) {
@@ -768,7 +777,7 @@ void Application::HandleInput() {
     }
 
     float wheelDelta = io.MouseWheel;
-    if (io.KeyShift && std::abs(io.MouseWheelH) > std::abs(wheelDelta)) {
+    if (shiftDown && std::abs(io.MouseWheelH) > std::abs(wheelDelta)) {
         wheelDelta = -io.MouseWheelH;
     }
     if (wheelDelta != 0.0f && mouse.x >= 0.0f && mouse.y >= 0.0f) {
@@ -780,7 +789,7 @@ void Application::HandleInput() {
                 selectedShape->size = {selectedShape->brushSize, selectedShape->brushSize};
             }
         } else {
-            view_.ZoomAt(mouse, wheelDelta, io.KeyShift ? 0.25f : 1.0f);
+            view_.ZoomAt(mouse, wheelDelta, shiftDown ? 0.25f : 1.0f);
         }
     }
 
@@ -814,7 +823,7 @@ void Application::HandleInput() {
 
     if (isDrawingLine_) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            UpdateLineDrawing(io.KeyShift ? ConstrainLineEnd(lineStartWorld_, mouseWorld) : mouseWorld);
+            UpdateLineDrawing(shiftDown ? ConstrainLineEnd(lineStartWorld_, mouseWorld) : mouseWorld);
             return;
         }
         FinishLineDrawing();
@@ -872,7 +881,7 @@ void Application::HandleInput() {
             }
         }
 
-        if (io.KeyShift && hitShapeIndex >= 0) {
+        if (shiftDown && hitShapeIndex >= 0) {
             std::vector<int> selected = document_.SelectedShapeIndices();
             const auto found = std::find(selected.begin(), selected.end(), hitShapeIndex);
             if (found == selected.end()) {
@@ -938,7 +947,7 @@ void Application::HandleInput() {
             PushHistory();
             transformHistoryPushed_ = true;
         }
-        transformer_.UpdateDrag(mouseWorld, *selectedShape, io.KeyShift, io.KeyAlt);
+        transformer_.UpdateDrag(mouseWorld, *selectedShape, shiftDown, io.KeyAlt);
         if (transformer_.ActiveMode() == DragMode::Move) {
             ApplySnapping(*selectedShape);
         } else {
@@ -951,7 +960,7 @@ void Application::HandleInput() {
             PushHistory();
             transformHistoryPushed_ = true;
         }
-        UpdateGroupTransform(mouseWorld, io.KeyShift, io.KeyAlt);
+        UpdateGroupTransform(mouseWorld, shiftDown, io.KeyAlt);
     }
 
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
@@ -966,10 +975,6 @@ void Application::HandleInput() {
 
 void Application::HandleShortcuts() {
     ImGuiIO &io = ImGui::GetIO();
-    if (editingTextIndex_ >= 0) {
-        return;
-    }
-
     const bool macCommandDown =
             glfwGetKey(window_, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
             glfwGetKey(window_, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
@@ -977,6 +982,15 @@ void Application::HandleShortcuts() {
             glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
             glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
             io.KeyShift;
+
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_Q)) {
+        glfwSetWindowShouldClose(window_, GLFW_TRUE);
+        return;
+    }
+
+    if (editingTextIndex_ >= 0) {
+        return;
+    }
 
     if (macCommandDown && shiftDown && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         Redo();
@@ -1084,7 +1098,7 @@ void Application::RenderPanels() {
         const float labelWidth = std::max(40.0f, rowWidth - buttonSize * 2.0f - buttonGap * 2.0f);
         ImGui::BeginDisabled(!layerShape.visible || layerShape.locked);
         if (ImGui::Selectable(layerShape.name.c_str(), selected, 0, ImVec2(labelWidth, 0.0f))) {
-            if (ImGui::GetIO().KeyShift && lastLayerSelectionIndex_ >= 0) {
+            if (IsShiftDown(window_, ImGui::GetIO()) && lastLayerSelectionIndex_ >= 0) {
                 std::vector<int> range;
                 const int start = std::min(lastLayerSelectionIndex_, i);
                 const int end = std::max(lastLayerSelectionIndex_, i);
@@ -2963,7 +2977,7 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
             } else {
                 canvas->clipRect(rect, true);
             }
-            canvas->drawImageRect(shape.image, rect, SkSamplingOptions(), &fill);
+            canvas->drawImageRect(shape.image, rect, SkSamplingOptions(SkFilterMode::kNearest), &fill);
             canvas->restore();
         } else if (shape.fillEnabled) {
             if (radius > 0.0f) {
