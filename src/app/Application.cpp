@@ -3,6 +3,7 @@
 #include "Application.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -13,7 +14,14 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
+
+#ifdef __APPLE__
+#include <libproc.h>
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -47,6 +55,76 @@ namespace {
     constexpr float kLeftPanelWidth = 240.0f;
     constexpr float kRightPanelWidth = 300.0f;
     constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
+
+#ifdef __APPLE__
+    constexpr const char *kSafariPlatformSupportHelper = "com.apple.SafariPlatformSupport.Helper";
+    constexpr std::uint64_t kHelperLaunchBeforeAppUsec = 2'000'000;
+    constexpr std::uint64_t kHelperLaunchAfterAppUsec = 10'000'000;
+
+    bool EndsWith(const std::string &value, const std::string &suffix) {
+        return value.size() >= suffix.size() &&
+               value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+    }
+
+    std::uint64_t ProcessStartTimeUsec(pid_t pid) {
+        proc_bsdinfo info{};
+        const int bytes = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+        if (bytes != sizeof(info)) {
+            return 0;
+        }
+        return static_cast<std::uint64_t>(info.pbi_start_tvsec) * 1'000'000ULL +
+               static_cast<std::uint64_t>(info.pbi_start_tvusec);
+    }
+
+    std::vector<pid_t> CurrentLaunchAutofillHelpers() {
+        const std::uint64_t appStartUsec = ProcessStartTimeUsec(getpid());
+        if (appStartUsec == 0) {
+            return {};
+        }
+
+        const int pidCount = proc_listpids(PROC_ALL_PIDS, 0, nullptr, 0);
+        if (pidCount <= 0) {
+            return {};
+        }
+
+        std::vector<pid_t> pids(static_cast<size_t>(pidCount));
+        const int bytes = proc_listpids(PROC_ALL_PIDS, 0, pids.data(), pidCount * static_cast<int>(sizeof(pid_t)));
+        if (bytes <= 0) {
+            return {};
+        }
+        pids.resize(static_cast<size_t>(bytes) / sizeof(pid_t));
+
+        std::vector<pid_t> helpers;
+        for (pid_t pid: pids) {
+            if (pid <= 0 || pid == getpid()) {
+                continue;
+            }
+
+            char pathBuffer[PROC_PIDPATHINFO_MAXSIZE]{};
+            if (proc_pidpath(pid, pathBuffer, sizeof(pathBuffer)) <= 0) {
+                continue;
+            }
+
+            if (!EndsWith(pathBuffer, kSafariPlatformSupportHelper)) {
+                continue;
+            }
+
+            const std::uint64_t helperStartUsec = ProcessStartTimeUsec(pid);
+            if (helperStartUsec == 0) {
+                continue;
+            }
+
+            const bool startedWithThisApp =
+                    helperStartUsec + kHelperLaunchBeforeAppUsec >= appStartUsec &&
+                    helperStartUsec <= appStartUsec + kHelperLaunchAfterAppUsec;
+            if (startedWithThisApp) {
+                helpers.push_back(pid);
+            }
+        }
+
+        return helpers;
+    }
+#endif
 
     GLFWcursor *CreateAsciiCursor(const std::array<const char *, 24> &rows, int hotX, int hotY) {
         constexpr int width = 24;
@@ -598,6 +676,7 @@ bool Application::Init() {
     LoadPreferences();
 
     glfwSetErrorCallback(GlfwErrorCallback);
+    glfwInitHint(GLFW_COCOA_MENUBAR, GLFW_FALSE);
 
     if (!glfwInit()) {
         return false;
@@ -3256,4 +3335,13 @@ void Application::Shutdown() {
     }
 
     glfwTerminate();
+
+#ifdef __APPLE__
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    for (pid_t pid: CurrentLaunchAutofillHelpers()) {
+        if (kill(pid, SIGTERM) == 0) {
+            std::fprintf(stderr, "INFO | cleaned SafariPlatformSupport helper pid %d\n", pid);
+        }
+    }
+#endif
 }
