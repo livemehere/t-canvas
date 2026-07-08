@@ -921,6 +921,10 @@ void Application::HandleShortcuts() {
         CopySelection();
         return;
     }
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_X)) {
+        CutSelection();
+        return;
+    }
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_V)) {
         PasteSelectionOrClipboardImage();
         return;
@@ -2142,6 +2146,18 @@ void Application::CopySelection() {
     if (WriteClipboardImageData(EncodeSelectionPng(width, height))) {
         copiedClipboardChangeCount_ = ClipboardChangeCount();
     }
+}
+
+void Application::CutSelection() {
+    if (document_.SelectedShapeIndices().empty()) {
+        return;
+    }
+
+    CopySelection();
+    PushHistory();
+    document_.RemoveSelectedShapes();
+    transformer_.EndDrag();
+    snapGuides_.clear();
 }
 
 void Application::PasteSelectionOrClipboardImage() {

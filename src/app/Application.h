@@ -186,6 +186,8 @@ private:
 
     void CopySelection();
 
+    void CutSelection();
+
     void PasteSelectionOrClipboardImage();
 
     sk_sp<SkData> EncodeSelectionPng(int width, int height) const;

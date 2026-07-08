@@ -113,6 +113,7 @@ Clipboard behavior is designed for screenshot annotation workflows:
 
 - `Cmd + C` copies selected shapes internally.
 - The same `Cmd + C` also writes a PNG image to the system clipboard.
+- `Cmd + X` cuts selected shapes while writing the same internal copy and PNG clipboard data.
 - Paste into Slack, Notes, Figma, or other apps to use the rendered image.
 - If the system clipboard contains a screenshot/image, `Cmd + V` imports it as an image shape.
 - If the clipboard still belongs to TCanvas, `Cmd + V` pastes duplicated shapes.
