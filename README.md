@@ -15,6 +15,7 @@ export multiple asset sizes.
 - Draw rectangles, circles, lines, arrows, text, images, blur brushes, and colored brush strokes.
 - Drag-to-create drawing for rectangles, circles, lines, and arrows.
 - Transform selected shapes with resize handles.
+- Crop images with a dedicated crop transformer; the image frame shrinks with the cropped edges.
 - Hold `Shift` while resizing to preserve aspect ratio.
 - Hold `Option` while resizing box-like shapes to resize from the center.
 - Hold `Shift` while drawing lines or arrows to constrain them to horizontal or vertical.
@@ -31,6 +32,7 @@ export multiple asset sizes.
 - Export multiple size variations from one selection.
 - Hide, lock, reorder, and select shapes from the layer tree.
 - Configure default styles per shape type.
+- Save and load complete documents as self-contained `.tcanvas` files, including pasted images.
 
 <img width="1556" height="906" alt="image" src="https://github.com/user-attachments/assets/d97ea751-e3fe-44aa-8b13-2898a4573ea4" />
 
@@ -47,7 +49,7 @@ The bottom toolbar contains the main tools:
 | Line   | `L`      | Drag to create a line. Hold `Shift` for straight horizontal/vertical lines.    |
 | Arrow  | `A`      | Drag to create an arrow. Hold `Shift` for straight horizontal/vertical arrows. |
 | Text   | `T`      | Create a text box and edit its content.                                        |
-| Image  | `I`      | Import an image file as a shape.                                               |
+| Image  | `I`      | Import an image file as a shape and crop it with the inspector.                |
 | Brush  | `B`      | Paint blur regions or colored brush strokes.                                   |
 
 <img width="941" height="177" alt="image" src="https://github.com/user-attachments/assets/3727ff81-f79e-4df0-a830-465aebc5fb54" />
@@ -93,6 +95,9 @@ For a single selection, you can edit:
 - Brush size for brush shapes
 
 For multiple selections, common style properties can be edited together.
+
+For image shapes, use `Crop Image` in the inspector to enter crop mode. Drag the crop handles to remove image
+edges, then choose `Exit Crop Mode` or press `Esc` to return to the normal transformer.
 
 <img width="2230" height="1402" alt="image" src="https://github.com/user-attachments/assets/36a49940-3c3c-453e-8f92-0e8e827578bb" />
 
@@ -141,6 +146,12 @@ tc_export_800x600.png
 tc_export_1600x1200.png
 ```
 
+## Documents
+
+Use `Save` or `Cmd + S` to save the current canvas as a `.tcanvas` document. Use `Load` or `Cmd + O` to restore it.
+The file stores shape properties, layer order, selection, canvas pan/zoom, crop state, brush paths, and embedded PNG
+image data, so pasted images remain available even when the original source file is missing.
+
 <img width="3104" height="1634" alt="image" src="https://github.com/user-attachments/assets/ffb9e515-5438-4d7c-901a-0f0087920da9" />
 
 ## Preferences
@@ -162,5 +173,7 @@ Settings are stored locally at:
 ```text
 ~/Library/Application Support/TCanvas/preferences.ini
 ```
+
+TCanvas also cleans up file-panel helper processes created by macOS after the app quits.
 
 <img width="960" height="759" alt="image" src="https://github.com/user-attachments/assets/eba80097-f9f1-4b57-afd4-1752f86f6f42" />
