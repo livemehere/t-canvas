@@ -125,6 +125,7 @@ private:
     const SkData *exportPreviewTextureData_ = nullptr;
     std::vector<DocumentSnapshot> undoStack_;
     std::vector<DocumentSnapshot> redoStack_;
+    std::vector<int> filePanelServicePids_;
     std::vector<SnapGuide> snapGuides_;
     int documentVersion_ = 0;
 
@@ -189,6 +190,10 @@ private:
 
     void CutSelection();
 
+    void SaveDocumentFile();
+
+    void LoadDocumentFile();
+
     void PasteSelectionOrClipboardImage();
 
     sk_sp<SkData> EncodeSelectionPng(int width, int height) const;
@@ -198,6 +203,12 @@ private:
     sk_sp<SkData> ExportVariationData(ExportVariation &variation);
 
     bool SaveDataToFile(const std::string &path, sk_sp<SkData> data) const;
+
+    bool SaveDocumentToPath(const std::string &path) const;
+
+    bool LoadDocumentFromPath(const std::string &path);
+
+    void RememberFilePanelServices(const std::vector<int> &before);
 
     std::string ExportVariantPath(const std::string &path, int width, int height, bool multiple) const;
 

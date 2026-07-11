@@ -55,6 +55,43 @@ std::string SavePngFileDialog() {
     }
 }
 
+std::string OpenTCanvasFileDialog() {
+    @autoreleasepool {
+        NSOpenPanel *panel = [NSOpenPanel openPanel];
+        panel.canChooseFiles = YES;
+        panel.canChooseDirectories = NO;
+        panel.allowsMultipleSelection = NO;
+        if (@available(macOS 11.0, *)) {
+            panel.allowedContentTypes = @[[UTType typeWithFilenameExtension:@"tcanvas"]];
+        } else {
+            panel.allowedFileTypes = @[@"tcanvas"];
+        }
+        if ([panel runModal] != NSModalResponseOK) {
+            return {};
+        }
+        NSString *path = panel.URL.path;
+        return path ? std::string(path.UTF8String) : std::string();
+    }
+}
+
+std::string SaveTCanvasFileDialog() {
+    @autoreleasepool {
+        NSSavePanel *panel = [NSSavePanel savePanel];
+        panel.canCreateDirectories = YES;
+        panel.nameFieldStringValue = @"Untitled.tcanvas";
+        if (@available(macOS 11.0, *)) {
+            panel.allowedContentTypes = @[[UTType typeWithFilenameExtension:@"tcanvas"]];
+        } else {
+            panel.allowedFileTypes = @[@"tcanvas"];
+        }
+        if ([panel runModal] != NSModalResponseOK) {
+            return {};
+        }
+        NSString *path = panel.URL.path;
+        return path ? std::string(path.UTF8String) : std::string();
+    }
+}
+
 sk_sp<SkData> ReadClipboardImageData() {
     @autoreleasepool {
         NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];

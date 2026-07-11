@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -55,15 +56,108 @@ namespace {
     constexpr float kLeftPanelWidth = 240.0f;
     constexpr float kRightPanelWidth = 300.0f;
     constexpr Color kAccentRed{1.0f, 0.22f, 0.20f, 1.0f};
+    constexpr char kTCanvasMagic[] = "TCANVAS1";
+    constexpr std::uint32_t kTCanvasVersion = 1;
+
+    template <typename T>
+    bool WriteBinary(std::ostream &stream, const T &value) {
+        stream.write(reinterpret_cast<const char *>(&value), sizeof(T));
+        return stream.good();
+    }
+
+    template <typename T>
+    bool ReadBinary(std::istream &stream, T &value) {
+        stream.read(reinterpret_cast<char *>(&value), sizeof(T));
+        return stream.good();
+    }
+
+    bool WriteString(std::ostream &stream, const std::string &value) {
+        const auto size = static_cast<std::uint32_t>(value.size());
+        return WriteBinary(stream, size) &&
+               (size == 0 || (stream.write(value.data(), size), stream.good()));
+    }
+
+    bool ReadString(std::istream &stream, std::string &value) {
+        std::uint32_t size = 0;
+        if (!ReadBinary(stream, size) || size > 16 * 1024 * 1024) {
+            return false;
+        }
+        value.resize(size);
+        return size == 0 || (stream.read(value.data(), size), stream.good());
+    }
+
+    bool WriteColor(std::ostream &stream, const Color &color) {
+        return WriteBinary(stream, color.r) &&
+               WriteBinary(stream, color.g) &&
+               WriteBinary(stream, color.b) &&
+               WriteBinary(stream, color.a);
+    }
+
+    bool ReadColor(std::istream &stream, Color &color) {
+        return ReadBinary(stream, color.r) &&
+               ReadBinary(stream, color.g) &&
+               ReadBinary(stream, color.b) &&
+               ReadBinary(stream, color.a);
+    }
+
+    sk_sp<SkData> EncodeImageAsset(const sk_sp<SkImage> &image) {
+        if (!image) {
+            return nullptr;
+        }
+
+        sk_sp<const SkData> encoded = image->refEncodedData();
+        if (encoded) {
+            return SkData::MakeWithCopy(encoded->data(), encoded->size());
+        }
+
+        sk_sp<SkImage> raster = image->makeRasterImage();
+        SkPixmap pixmap;
+        if (!raster || !raster->peekPixels(&pixmap)) {
+            return nullptr;
+        }
+        SkPngEncoder::Options options;
+        return SkPngEncoder::Encode(pixmap, options);
+    }
 
 #ifdef __APPLE__
-    constexpr const char *kSafariPlatformSupportHelper = "com.apple.SafariPlatformSupport.Helper";
+    constexpr const char *kSafariPlatformSupportHelper = "SafariPlatformSupport.Helper";
+    constexpr const char *kQuickLookUIService = "QuickLookUIService";
+    constexpr const char *kOpenAndSavePanelService = "OpenAndSavePanelService";
     constexpr std::uint64_t kHelperLaunchBeforeAppUsec = 2'000'000;
     constexpr std::uint64_t kHelperLaunchAfterAppUsec = 10'000'000;
 
-    bool EndsWith(const std::string &value, const std::string &suffix) {
-        return value.size() >= suffix.size() &&
-               value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+    bool IsFilePanelServicePath(const std::string &path) {
+        return path.find(kSafariPlatformSupportHelper) != std::string::npos ||
+               path.find(kQuickLookUIService) != std::string::npos ||
+               path.find(kOpenAndSavePanelService) != std::string::npos ||
+               path.find("openAndSavePanelService") != std::string::npos;
+    }
+
+    std::vector<pid_t> CurrentFilePanelServicePids() {
+        const int pidCount = proc_listpids(PROC_ALL_PIDS, 0, nullptr, 0);
+        if (pidCount <= 0) {
+            return {};
+        }
+
+        std::vector<pid_t> pids(static_cast<size_t>(pidCount));
+        const int bytes = proc_listpids(PROC_ALL_PIDS, 0, pids.data(), pidCount * static_cast<int>(sizeof(pid_t)));
+        if (bytes <= 0) {
+            return {};
+        }
+        pids.resize(static_cast<size_t>(bytes) / sizeof(pid_t));
+
+        std::vector<pid_t> services;
+        for (pid_t pid: pids) {
+            if (pid <= 0 || pid == getpid()) {
+                continue;
+            }
+            char pathBuffer[PROC_PIDPATHINFO_MAXSIZE]{};
+            if (proc_pidpath(pid, pathBuffer, sizeof(pathBuffer)) > 0 &&
+                IsFilePanelServicePath(pathBuffer)) {
+                services.push_back(pid);
+            }
+        }
+        return services;
     }
 
     std::uint64_t ProcessStartTimeUsec(pid_t pid) {
@@ -105,7 +199,7 @@ namespace {
                 continue;
             }
 
-            if (!EndsWith(pathBuffer, kSafariPlatformSupportHelper)) {
+            if (!IsFilePanelServicePath(pathBuffer)) {
                 continue;
             }
 
@@ -990,6 +1084,15 @@ void Application::HandleShortcuts() {
         return;
     }
 
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        SaveDocumentFile();
+        return;
+    }
+    if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_O)) {
+        LoadDocumentFile();
+        return;
+    }
+
     if (imageCropMode_ && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         imageCropMode_ = false;
         transformer_.EndDrag();
@@ -1338,7 +1441,7 @@ void Application::RenderPanels() {
 
 void Application::RenderToolbar() {
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    constexpr float toolbarWidth = 890.0f;
+    constexpr float toolbarWidth = 1040.0f;
     constexpr float toolbarHeight = 52.0f;
     const ImVec2 pos{
         viewport->WorkPos.x + (viewport->WorkSize.x - toolbarWidth) * 0.5f,
@@ -1394,6 +1497,20 @@ void Application::RenderToolbar() {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Export selection");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save", ImVec2(68.0f, 32.0f))) {
+        SaveDocumentFile();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Save document (Cmd + S)");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load", ImVec2(68.0f, 32.0f))) {
+        LoadDocumentFile();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Load document (Cmd + O)");
     }
     ImGui::SameLine();
     if (ImGui::Button("Settings", ImVec2(76.0f, 32.0f))) {
@@ -2274,6 +2391,248 @@ void Application::CutSelection() {
     document_.RemoveSelectedShapes();
     transformer_.EndDrag();
     snapGuides_.clear();
+}
+
+void Application::SaveDocumentFile() {
+    const std::vector<int> before = [] {
+#ifdef __APPLE__
+        const auto pids = CurrentFilePanelServicePids();
+        return std::vector<int>(pids.begin(), pids.end());
+#else
+        return std::vector<int>{};
+#endif
+    }();
+    const std::string path = SaveTCanvasFileDialog();
+    RememberFilePanelServices(before);
+    if (!path.empty()) {
+        SaveDocumentToPath(path);
+    }
+}
+
+void Application::LoadDocumentFile() {
+    const std::vector<int> before = [] {
+#ifdef __APPLE__
+        const auto pids = CurrentFilePanelServicePids();
+        return std::vector<int>(pids.begin(), pids.end());
+#else
+        return std::vector<int>{};
+#endif
+    }();
+    const std::string path = OpenTCanvasFileDialog();
+    RememberFilePanelServices(before);
+    if (!path.empty()) {
+        LoadDocumentFromPath(path);
+    }
+}
+
+void Application::RememberFilePanelServices(const std::vector<int> &before) {
+#ifdef __APPLE__
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    const auto current = CurrentFilePanelServicePids();
+    for (pid_t pid: current) {
+        if (std::find(before.begin(), before.end(), pid) == before.end() &&
+            std::find(filePanelServicePids_.begin(), filePanelServicePids_.end(), pid) == filePanelServicePids_.end()) {
+            filePanelServicePids_.push_back(pid);
+        }
+    }
+#else
+    (void) before;
+#endif
+}
+
+bool Application::SaveDocumentToPath(const std::string &path) const {
+    if (path.empty()) {
+        return false;
+    }
+
+    const std::filesystem::path target(path);
+    const std::filesystem::path temporary = target.string() + ".tmp";
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    if (!file) {
+        return false;
+    }
+
+    file.write(kTCanvasMagic, sizeof(kTCanvasMagic) - 1);
+    if (!WriteBinary(file, kTCanvasVersion)) {
+        return false;
+    }
+
+    const auto &shapes = document_.Shapes();
+    const auto &selected = document_.SelectedShapeIndices();
+    const auto shapeCount = static_cast<std::uint32_t>(shapes.size());
+    const auto selectedCount = static_cast<std::uint32_t>(selected.size());
+    if (!WriteBinary(file, shapeCount) || !WriteBinary(file, selectedCount) ||
+        !WriteBinary(file, view_.pan.x) || !WriteBinary(file, view_.pan.y) ||
+        !WriteBinary(file, view_.zoom)) {
+        return false;
+    }
+    for (int index: selected) {
+        const auto savedIndex = static_cast<std::int32_t>(index);
+        if (!WriteBinary(file, savedIndex)) {
+            return false;
+        }
+    }
+
+    for (const Shape &shape: shapes) {
+        const auto type = static_cast<std::uint32_t>(shape.type);
+        const std::uint8_t fillEnabled = shape.fillEnabled;
+        const std::uint8_t borderEnabled = shape.borderEnabled;
+        const std::uint8_t visible = shape.visible;
+        const std::uint8_t locked = shape.locked;
+        const std::uint8_t blurBackground = shape.blurBackground;
+        const auto pointCount = static_cast<std::uint32_t>(shape.brushPoints.size());
+
+        if (!WriteBinary(file, type) || !WriteString(file, shape.name) ||
+            !WriteBinary(file, shape.position.x) || !WriteBinary(file, shape.position.y) ||
+            !WriteBinary(file, shape.size.x) || !WriteBinary(file, shape.size.y) ||
+            !WriteBinary(file, shape.rotation) || !WriteBinary(file, shape.cornerRadius) ||
+            !WriteBinary(file, shape.borderWidth) || !WriteBinary(file, shape.arrowHeadSize) ||
+            !WriteBinary(file, fillEnabled) || !WriteBinary(file, borderEnabled) ||
+            !WriteColor(file, shape.fill) || !WriteColor(file, shape.border) ||
+            !WriteBinary(file, visible) || !WriteBinary(file, locked) ||
+            !WriteBinary(file, blurBackground) || !WriteBinary(file, shape.blurRadius) ||
+            !WriteBinary(file, shape.brushSize) || !WriteString(file, shape.text) ||
+            !WriteString(file, shape.imagePath) ||
+            !WriteBinary(file, shape.cropLeft) || !WriteBinary(file, shape.cropTop) ||
+            !WriteBinary(file, shape.cropRight) || !WriteBinary(file, shape.cropBottom) ||
+            !WriteBinary(file, pointCount)) {
+            return false;
+        }
+        for (Vec2 point: shape.brushPoints) {
+            if (!WriteBinary(file, point.x) || !WriteBinary(file, point.y)) {
+                return false;
+            }
+        }
+
+        sk_sp<SkData> imageData = shape.type == ShapeType::Image
+            ? EncodeImageAsset(shape.image)
+            : nullptr;
+        const auto imageSize = imageData ? static_cast<std::uint64_t>(imageData->size()) : 0;
+        if (!WriteBinary(file, imageSize)) {
+            return false;
+        }
+        if (imageSize > 0 &&
+            (!file.write(static_cast<const char *>(imageData->data()), static_cast<std::streamsize>(imageSize)))) {
+            return false;
+        }
+    }
+
+    file.flush();
+    file.close();
+    if (!file) {
+        return false;
+    }
+    std::error_code error;
+    std::filesystem::remove(target, error);
+    std::filesystem::rename(temporary, target, error);
+    return !error;
+}
+
+bool Application::LoadDocumentFromPath(const std::string &path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+
+    char magic[sizeof(kTCanvasMagic) - 1] = {};
+    std::uint32_t version = 0;
+    if (!file.read(magic, sizeof(magic)) ||
+        std::memcmp(magic, kTCanvasMagic, sizeof(magic)) != 0 ||
+        !ReadBinary(file, version) || version != kTCanvasVersion) {
+        return false;
+    }
+
+    std::uint32_t shapeCount = 0;
+    std::uint32_t selectedCount = 0;
+    Vec2 savedPan;
+    float savedZoom = 1.0f;
+    if (!ReadBinary(file, shapeCount) || !ReadBinary(file, selectedCount) ||
+        shapeCount > 100000 || selectedCount > shapeCount ||
+        !ReadBinary(file, savedPan.x) || !ReadBinary(file, savedPan.y) ||
+        !ReadBinary(file, savedZoom)) {
+        return false;
+    }
+
+    std::vector<int> selected;
+    selected.reserve(selectedCount);
+    for (std::uint32_t i = 0; i < selectedCount; ++i) {
+        std::int32_t index = -1;
+        if (!ReadBinary(file, index)) {
+            return false;
+        }
+        selected.push_back(index);
+    }
+
+    std::vector<Shape> shapes;
+    shapes.reserve(shapeCount);
+    for (std::uint32_t i = 0; i < shapeCount; ++i) {
+        Shape shape;
+        std::uint32_t type = 0;
+        std::uint8_t fillEnabled = 0;
+        std::uint8_t borderEnabled = 0;
+        std::uint8_t visible = 0;
+        std::uint8_t locked = 0;
+        std::uint8_t blurBackground = 0;
+        std::uint32_t pointCount = 0;
+        if (!ReadBinary(file, type) || type > static_cast<std::uint32_t>(ShapeType::Brush)) {
+            return false;
+        }
+        shape.type = static_cast<ShapeType>(type);
+        if (!ReadString(file, shape.name) ||
+            !ReadBinary(file, shape.position.x) || !ReadBinary(file, shape.position.y) ||
+            !ReadBinary(file, shape.size.x) || !ReadBinary(file, shape.size.y) ||
+            !ReadBinary(file, shape.rotation) || !ReadBinary(file, shape.cornerRadius) ||
+            !ReadBinary(file, shape.borderWidth) || !ReadBinary(file, shape.arrowHeadSize) ||
+            !ReadBinary(file, fillEnabled) || !ReadBinary(file, borderEnabled) ||
+            !ReadColor(file, shape.fill) || !ReadColor(file, shape.border) ||
+            !ReadBinary(file, visible) || !ReadBinary(file, locked) ||
+            !ReadBinary(file, blurBackground) || !ReadBinary(file, shape.blurRadius) ||
+            !ReadBinary(file, shape.brushSize) || !ReadString(file, shape.text) ||
+            !ReadString(file, shape.imagePath) ||
+            !ReadBinary(file, shape.cropLeft) || !ReadBinary(file, shape.cropTop) ||
+            !ReadBinary(file, shape.cropRight) || !ReadBinary(file, shape.cropBottom) ||
+            !ReadBinary(file, pointCount) || pointCount > 10'000'000) {
+            return false;
+        }
+        shape.fillEnabled = fillEnabled != 0;
+        shape.borderEnabled = borderEnabled != 0;
+        shape.visible = visible != 0;
+        shape.locked = locked != 0;
+        shape.blurBackground = blurBackground != 0;
+        shape.brushPoints.resize(pointCount);
+        for (Vec2 &point: shape.brushPoints) {
+            if (!ReadBinary(file, point.x) || !ReadBinary(file, point.y)) {
+                return false;
+            }
+        }
+
+        std::uint64_t imageSize = 0;
+        if (!ReadBinary(file, imageSize) || imageSize > 1024ull * 1024ull * 1024ull) {
+            return false;
+        }
+        if (imageSize > 0) {
+            std::vector<std::uint8_t> imageBytes(static_cast<size_t>(imageSize));
+            if (!file.read(reinterpret_cast<char *>(imageBytes.data()), static_cast<std::streamsize>(imageSize))) {
+                return false;
+            }
+            sk_sp<SkData> data = SkData::MakeWithCopy(imageBytes.data(), imageBytes.size());
+            shape.image = SkImages::DeferredFromEncodedData(data);
+            if (!shape.image) {
+                return false;
+            }
+        }
+        shapes.push_back(std::move(shape));
+    }
+
+    document_.ReplaceContents(std::move(shapes), std::move(selected));
+    view_.pan = savedPan;
+    view_.zoom = Clamp(savedZoom, 0.05f, 32.0f);
+    imageCropMode_ = false;
+    transformer_.EndDrag();
+    undoStack_.clear();
+    redoStack_.clear();
+    MarkDocumentChanged();
+    return true;
 }
 
 void Application::PasteSelectionOrClipboardImage() {
@@ -3392,9 +3751,25 @@ void Application::Shutdown() {
 
 #ifdef __APPLE__
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
-    for (pid_t pid: CurrentLaunchAutofillHelpers()) {
+    std::vector<pid_t> helpers = CurrentLaunchAutofillHelpers();
+    const auto currentServices = CurrentFilePanelServicePids();
+    for (int trackedPid: filePanelServicePids_) {
+        const pid_t pid = static_cast<pid_t>(trackedPid);
+        if (std::find(currentServices.begin(), currentServices.end(), pid) != currentServices.end() &&
+            std::find(helpers.begin(), helpers.end(), pid) == helpers.end()) {
+            helpers.push_back(pid);
+        }
+    }
+
+    for (pid_t pid: helpers) {
         if (kill(pid, SIGTERM) == 0) {
-            std::fprintf(stderr, "INFO | cleaned SafariPlatformSupport helper pid %d\n", pid);
+            std::fprintf(stderr, "INFO | cleaned file panel service pid %d\n", pid);
+        }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    for (pid_t pid: helpers) {
+        if (kill(pid, 0) == 0) {
+            kill(pid, SIGKILL);
         }
     }
 #endif

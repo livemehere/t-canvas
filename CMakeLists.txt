@@ -34,6 +34,6 @@ target_link_libraries(TCanvas PRIVATE
 set_target_properties(TCanvas PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "TCanvas"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.livemehere.tcanvas"
-        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.3"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.3"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.4"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.4"
 )
