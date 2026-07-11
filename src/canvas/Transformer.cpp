@@ -22,6 +22,14 @@ Vec2 LineEnd(const Shape &shape) {
     return LocalToWorld({shape.size.x * 0.5f, 0.0f}, shape);
 }
 
+Vec2 ConstrainLineEndpoint(Vec2 anchor, Vec2 endpoint) {
+    const Vec2 delta = endpoint - anchor;
+    if (std::abs(delta.x) >= std::abs(delta.y)) {
+        return {endpoint.x, anchor.y};
+    }
+    return {anchor.x, endpoint.y};
+}
+
 float DistanceToSegment(Vec2 point, Vec2 a, Vec2 b) {
     const Vec2 ab = b - a;
     const Vec2 ap = point - a;
@@ -61,6 +69,14 @@ Vec2 Transformer::GetHandleWorldPosition(const Shape &shape, DragMode mode) cons
             return corners[2];
         case DragMode::ResizeBottomLeft:
             return corners[3];
+        case DragMode::CropTopLeft:
+            return corners[0];
+        case DragMode::CropTopRight:
+            return corners[1];
+        case DragMode::CropBottomRight:
+            return corners[2];
+        case DragMode::CropBottomLeft:
+            return corners[3];
         case DragMode::Rotate:
             return GetRotateHandle(shape);
         default:
@@ -68,7 +84,7 @@ Vec2 Transformer::GetHandleWorldPosition(const Shape &shape, DragMode mode) cons
     }
 }
 
-DragMode Transformer::HitTest(Vec2 screen, const Shape &shape, const CanvasView &view) const {
+DragMode Transformer::HitTest(Vec2 screen, const Shape &shape, const CanvasView &view, bool cropMode) const {
     constexpr float handleRadius = 7.0f;
 
     if (IsLineShape(shape)) {
@@ -87,15 +103,23 @@ DragMode Transformer::HitTest(Vec2 screen, const Shape &shape, const CanvasView 
     }
 
     const auto corners = GetShapeCorners(shape);
-    const std::array<DragMode, 4> cornerModes{
-        DragMode::ResizeTopLeft,
-        DragMode::ResizeTopRight,
-        DragMode::ResizeBottomRight,
-        DragMode::ResizeBottomLeft
-    };
+    const auto hitCorners = corners;
+    const std::array<DragMode, 4> cornerModes = cropMode && shape.type == ShapeType::Image
+        ? std::array<DragMode, 4>{
+            DragMode::CropTopLeft,
+            DragMode::CropTopRight,
+            DragMode::CropBottomRight,
+            DragMode::CropBottomLeft
+        }
+        : std::array<DragMode, 4>{
+            DragMode::ResizeTopLeft,
+            DragMode::ResizeTopRight,
+            DragMode::ResizeBottomRight,
+            DragMode::ResizeBottomLeft
+        };
 
     for (int i = 0; i < 4; ++i) {
-        if (Distance(screen, view.WorldToScreen(corners[i])) <= handleRadius) {
+        if (Distance(screen, view.WorldToScreen(hitCorners[i])) <= handleRadius) {
             return cornerModes[i];
         }
     }
@@ -129,13 +153,23 @@ void Transformer::BeginDrag(DragMode mode, Vec2 mouseWorld, const Shape &shape) 
         mode_ == DragMode::ResizeBottomRight ||
         mode_ == DragMode::ResizeBottomLeft ||
         mode_ == DragMode::LineStart ||
-        mode_ == DragMode::LineEnd
+        mode_ == DragMode::LineEnd ||
+        mode_ == DragMode::CropTopLeft ||
+        mode_ == DragMode::CropTopRight ||
+        mode_ == DragMode::CropBottomRight ||
+        mode_ == DragMode::CropBottomLeft
     ) {
         handleGrabOffset_ = mouseWorld - GetHandleWorldPosition(shape, mode_);
     }
 }
 
-void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape, bool keepAspectRatio, bool resizeFromCenter) {
+void Transformer::UpdateDrag(
+    Vec2 mouseWorld,
+    Shape &shape,
+    bool keepAspectRatio,
+    bool resizeFromCenter,
+    bool cropMode
+) {
     switch (mode_) {
         case DragMode::Move: {
             shape = startShape_;
@@ -153,7 +187,21 @@ void Transformer::UpdateDrag(Vec2 mouseWorld, Shape &shape, bool keepAspectRatio
         case DragMode::LineStart:
         case DragMode::LineEnd:
             shape = startShape_;
-            ResizeLineEndpoint(shape, mouseWorld - handleGrabOffset_, mode_);
+            ResizeLineEndpoint(
+                shape,
+                mouseWorld - handleGrabOffset_,
+                mode_,
+                keepAspectRatio
+            );
+            break;
+        case DragMode::CropTopLeft:
+        case DragMode::CropTopRight:
+        case DragMode::CropBottomRight:
+        case DragMode::CropBottomLeft:
+            shape = startShape_;
+            if (cropMode && shape.type == ShapeType::Image) {
+                CropFromCorner(shape, mouseWorld - handleGrabOffset_, mode_);
+            }
             break;
         case DragMode::Rotate: {
             shape = startShape_;
@@ -251,9 +299,9 @@ void Transformer::ResizeFromCorner(
     shape.position = anchorWorld + Rotate(anchorToCenterLocal, shape.rotation);
 }
 
-void Transformer::ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode) const {
+void Transformer::ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode, bool constrainAngle) const {
     const Vec2 anchor = mode == DragMode::LineStart ? LineEnd(startShape_) : LineStart(startShape_);
-    const Vec2 dragged = mouseWorld;
+    const Vec2 dragged = constrainAngle ? ConstrainLineEndpoint(anchor, mouseWorld) : mouseWorld;
     const Vec2 delta = dragged - anchor;
     const float length = std::max(2.0f, std::sqrt(delta.x * delta.x + delta.y * delta.y));
 
@@ -266,7 +314,61 @@ void Transformer::ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mod
     }
 }
 
-void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &view) const {
+void Transformer::CropFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode) const {
+    const Vec2 local = WorldToLocal(mouseWorld, startShape_);
+    const float halfWidth = std::max(1.0f, startShape_.size.x * 0.5f);
+    const float halfHeight = std::max(1.0f, startShape_.size.y * 0.5f);
+    const float u = Clamp((local.x + halfWidth) / (halfWidth * 2.0f), 0.0f, 1.0f);
+    const float v = Clamp((local.y + halfHeight) / (halfHeight * 2.0f), 0.0f, 1.0f);
+
+    float displayLeft = 0.0f;
+    float displayTop = 0.0f;
+    float displayRight = 1.0f;
+    float displayBottom = 1.0f;
+    switch (mode) {
+        case DragMode::CropTopLeft:
+            displayLeft = u;
+            displayTop = v;
+            break;
+        case DragMode::CropTopRight:
+            displayRight = u;
+            displayTop = v;
+            break;
+        case DragMode::CropBottomRight:
+            displayRight = u;
+            displayBottom = v;
+            break;
+        case DragMode::CropBottomLeft:
+            displayLeft = u;
+            displayBottom = v;
+            break;
+        default:
+            break;
+    }
+
+    displayLeft = std::min(displayLeft, displayRight - 0.01f);
+    displayTop = std::min(displayTop, displayBottom - 0.01f);
+    displayRight = std::max(displayRight, displayLeft + 0.01f);
+    displayBottom = std::max(displayBottom, displayTop + 0.01f);
+
+    const float sourceWidth = startShape_.cropRight - startShape_.cropLeft;
+    const float sourceHeight = startShape_.cropBottom - startShape_.cropTop;
+    shape.cropLeft = startShape_.cropLeft + sourceWidth * displayLeft;
+    shape.cropTop = startShape_.cropTop + sourceHeight * displayTop;
+    shape.cropRight = startShape_.cropLeft + sourceWidth * displayRight;
+    shape.cropBottom = startShape_.cropTop + sourceHeight * displayBottom;
+    shape.size = {
+        std::max(1.0f, startShape_.size.x * (displayRight - displayLeft)),
+        std::max(1.0f, startShape_.size.y * (displayBottom - displayTop))
+    };
+    const Vec2 localCenter{
+        (displayLeft + displayRight - 1.0f) * startShape_.size.x * 0.5f,
+        (displayTop + displayBottom - 1.0f) * startShape_.size.y * 0.5f
+    };
+    shape.position = LocalToWorld(localCenter, startShape_);
+}
+
+void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &view, bool cropMode) const {
     if (IsLineShape(shape)) {
         const Vec2 start = view.WorldToScreen(LineStart(shape));
         const Vec2 end = view.WorldToScreen(LineEnd(shape));
@@ -290,6 +392,38 @@ void Transformer::Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &v
     }
 
     const auto corners = GetShapeCorners(shape);
+    if (cropMode && shape.type == ShapeType::Image) {
+        const auto cropCorners = corners;
+
+        SkPaint cropOutline;
+        cropOutline.setAntiAlias(true);
+        cropOutline.setColor(SkColorSetARGB(230, 255, 255, 255));
+        cropOutline.setStyle(SkPaint::kStroke_Style);
+        cropOutline.setStrokeWidth(1.5f);
+        SkPath cropPath;
+        Vec2 cropPoint = view.WorldToScreen(cropCorners[0]);
+        cropPath.moveTo(cropPoint.x, cropPoint.y);
+        for (int i = 1; i < 4; ++i) {
+            cropPoint = view.WorldToScreen(cropCorners[i]);
+            cropPath.lineTo(cropPoint.x, cropPoint.y);
+        }
+        cropPath.close();
+        canvas->drawPath(cropPath, cropOutline);
+
+        SkPaint cropHandle;
+        cropHandle.setAntiAlias(true);
+        cropHandle.setColor(SkColorSetARGB(245, 255, 255, 255));
+        cropHandle.setStyle(SkPaint::kFill_Style);
+        constexpr float cropHalf = 5.0f;
+        for (Vec2 corner: cropCorners) {
+            const Vec2 screen = view.WorldToScreen(corner);
+            canvas->drawRect(
+                SkRect::MakeXYWH(screen.x - cropHalf, screen.y - cropHalf, cropHalf * 2.0f, cropHalf * 2.0f),
+                cropHandle
+            );
+        }
+        return;
+    }
 
     SkPaint outline;
     outline.setAntiAlias(true);

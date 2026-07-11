@@ -45,6 +45,10 @@ struct Shape {
     float brushSize = 4.0f;
     std::string text = "Text";
     std::string imagePath;
+    float cropLeft = 0.0f;
+    float cropTop = 0.0f;
+    float cropRight = 1.0f;
+    float cropBottom = 1.0f;
     std::vector<Vec2> brushPoints;
     sk_sp<SkImage> image;
 };

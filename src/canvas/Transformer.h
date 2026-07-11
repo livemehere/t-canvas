@@ -14,16 +14,26 @@ enum class DragMode {
     ResizeBottomLeft,
     Rotate,
     LineStart,
-    LineEnd
+    LineEnd,
+    CropTopLeft,
+    CropTopRight,
+    CropBottomRight,
+    CropBottomLeft
 };
 
 class Transformer {
 public:
-    DragMode HitTest(Vec2 screen, const Shape &shape, const CanvasView &view) const;
+    DragMode HitTest(Vec2 screen, const Shape &shape, const CanvasView &view, bool cropMode = false) const;
     void BeginDrag(DragMode mode, Vec2 mouseWorld, const Shape &shape);
-    void UpdateDrag(Vec2 mouseWorld, Shape &shape, bool keepAspectRatio = false, bool resizeFromCenter = false);
+    void UpdateDrag(
+        Vec2 mouseWorld,
+        Shape &shape,
+        bool keepAspectRatio = false,
+        bool resizeFromCenter = false,
+        bool cropMode = false
+    );
     void EndDrag();
-    void Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &view) const;
+    void Draw(SkCanvas *canvas, const Shape &shape, const CanvasView &view, bool cropMode = false) const;
 
     DragMode ActiveMode() const;
 
@@ -37,5 +47,6 @@ private:
     Vec2 GetRotateHandle(const Shape &shape) const;
     Vec2 GetHandleWorldPosition(const Shape &shape, DragMode mode) const;
     void ResizeFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode, bool keepAspectRatio, bool resizeFromCenter) const;
-    void ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode) const;
+    void ResizeLineEndpoint(Shape &shape, Vec2 mouseWorld, DragMode mode, bool constrainAngle) const;
+    void CropFromCorner(Shape &shape, Vec2 mouseWorld, DragMode mode) const;
 };

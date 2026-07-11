@@ -911,7 +911,7 @@ void Application::HandleInput() {
         }
 
         if (selectedShape && !hasMultiSelection) {
-            mode = transformer_.HitTest(mouse, *selectedShape, view_);
+            mode = transformer_.HitTest(mouse, *selectedShape, view_, imageCropMode_);
             if (mode == DragMode::Move && hitShapeIndex >= 0 && hitShapeIndex != document_.SelectedShapeIndex()) {
                 mode = DragMode::None;
             }
@@ -920,6 +920,7 @@ void Application::HandleInput() {
         if (mode == DragMode::None) {
             if (hitShapeIndex >= 0) {
                 document_.SelectShape(hitShapeIndex);
+                imageCropMode_ = false;
                 selectedShape = document_.SelectedShape();
                 mode = DragMode::Move;
             }
@@ -930,6 +931,7 @@ void Application::HandleInput() {
             selectionStartScreen_ = mouse;
             selectionCurrentScreen_ = mouse;
             document_.SelectShape(-1);
+            imageCropMode_ = false;
             transformer_.EndDrag();
             selectedShape = nullptr;
         }
@@ -947,7 +949,7 @@ void Application::HandleInput() {
             PushHistory();
             transformHistoryPushed_ = true;
         }
-        transformer_.UpdateDrag(mouseWorld, *selectedShape, shiftDown, io.KeyAlt);
+        transformer_.UpdateDrag(mouseWorld, *selectedShape, shiftDown, io.KeyAlt, imageCropMode_);
         if (transformer_.ActiveMode() == DragMode::Move) {
             ApplySnapping(*selectedShape);
         } else {
@@ -985,6 +987,12 @@ void Application::HandleShortcuts() {
 
     if (macCommandDown && ImGui::IsKeyPressed(ImGuiKey_Q)) {
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
+        return;
+    }
+
+    if (imageCropMode_ && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        imageCropMode_ = false;
+        transformer_.EndDrag();
         return;
     }
 
@@ -1113,6 +1121,7 @@ void Application::RenderPanels() {
                 document_.SelectShape(i);
                 lastLayerSelectionIndex_ = i;
             }
+            imageCropMode_ = false;
             transformer_.EndDrag();
         }
         if (ImGui::IsItemHovered()) {
@@ -1263,6 +1272,20 @@ void Application::RenderPanels() {
             if (ImGui::IsItemEdited()) {
                 shape->text = contentBuffer.data();
             }
+        }
+        if (shape->type == ShapeType::Image) {
+            ImGui::SeparatorText("Image");
+            if (imageCropMode_) {
+                if (ImGui::Button("Exit Crop Mode")) {
+                    imageCropMode_ = false;
+                    transformer_.EndDrag();
+                }
+            } else if (ImGui::Button("Crop Image")) {
+                imageCropMode_ = true;
+                transformer_.EndDrag();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("Drag corners");
         }
         ImGui::Checkbox("Show Fill", &shape->fillEnabled);
         captureInspectorEdit = captureInspectorEdit || ImGui::IsItemActivated();
@@ -2977,7 +3000,24 @@ void Application::RenderShape(SkCanvas *canvas, const Shape &shape) const {
             } else {
                 canvas->clipRect(rect, true);
             }
-            canvas->drawImageRect(shape.image, rect, SkSamplingOptions(SkFilterMode::kNearest), &fill);
+            const float left = Clamp(shape.cropLeft, 0.0f, 1.0f);
+            const float top = Clamp(shape.cropTop, 0.0f, 1.0f);
+            const float right = Clamp(std::max(shape.cropRight, left + 0.001f), 0.0f, 1.0f);
+            const float bottom = Clamp(std::max(shape.cropBottom, top + 0.001f), 0.0f, 1.0f);
+            const SkRect source = SkRect::MakeLTRB(
+                shape.image->width() * left,
+                shape.image->height() * top,
+                shape.image->width() * right,
+                shape.image->height() * bottom
+            );
+            canvas->drawImageRect(
+                shape.image,
+                source,
+                rect,
+                SkSamplingOptions(SkFilterMode::kNearest),
+                &fill,
+                SkCanvas::kStrict_SrcRectConstraint
+            );
             canvas->restore();
         } else if (shape.fillEnabled) {
             if (radius > 0.0f) {
@@ -3271,7 +3311,7 @@ void Application::Render(float dpr, int framebufferWidth, int framebufferHeight)
         if (selectedShape->visible && !selectedShape->locked) {
             canvas->save();
             canvas->scale(dpr, dpr);
-            transformer_.Draw(canvas, *selectedShape, view_);
+            transformer_.Draw(canvas, *selectedShape, view_, imageCropMode_);
             canvas->restore();
         }
     }

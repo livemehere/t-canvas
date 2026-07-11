@@ -86,6 +86,7 @@ private:
     bool isDrawingLine_ = false;
     bool isDrawingBox_ = false;
     bool isDrawingBrush_ = false;
+    bool imageCropMode_ = false;
     bool isSelectingArea_ = false;
     bool groupTransformActive_ = false;
     bool transformHistoryPushed_ = false;
